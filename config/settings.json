@@ -12,7 +12,7 @@
 		"show_refresh_rate": false
 	},
 	"text_scroller": {
-		"default_text": "Hello World!",
+		"default_text": "Hello Fida!",
 		"scroll_speed": 0.03,
 		"font": "7x13.bdf",
 		"color": {
