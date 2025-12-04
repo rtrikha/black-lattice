@@ -1,0 +1,46 @@
+{
+	"matrix": {
+		"rows": 32,
+		"cols": 64,
+		"chain_length": 1,
+		"parallel": 1,
+		"hardware_mapping": "adafruit-hat",
+		"brightness": 50,
+		"gpio_slowdown": 4,
+		"pwm_bits": 11,
+		"pwm_lsb_nanoseconds": 130,
+		"show_refresh_rate": false
+	},
+	"text_scroller": {
+		"default_text": "Hello World!",
+		"scroll_speed": 0.03,
+		"font": "7x13.bdf",
+		"color": {
+			"r": 255,
+			"g": 255,
+			"b": 255
+		}
+	},
+	"clock": {
+		"format_24h": false,
+		"show_seconds": true,
+		"show_date": true,
+		"color": {
+			"r": 0,
+			"g": 255,
+			"b": 128
+		}
+	},
+	"weather": {
+		"api_key": "YOUR_API_KEY_HERE",
+		"city": "New York",
+		"units": "metric",
+		"update_interval_seconds": 600,
+		"color": {
+			"r": 255,
+			"g": 200,
+			"b": 0
+		}
+	}
+}
+
