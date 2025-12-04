@@ -21,16 +21,9 @@ def load_config() -> dict:
     with open(config_path, "r") as f:
         return json.load(f)
 
-
 def create_matrix(config: dict = None) -> RGBMatrix:
     """
     Initialize and return an RGBMatrix instance.
-    
-    Args:
-        config: Optional config dict. If None, loads from settings.json.
-    
-    Returns:
-        Configured RGBMatrix instance.
     """
     if config is None:
         config = load_config()
@@ -49,95 +42,176 @@ def create_matrix(config: dict = None) -> RGBMatrix:
     options.pwm_bits = matrix_config.get("pwm_bits", 11)
     options.pwm_lsb_nanoseconds = matrix_config.get("pwm_lsb_nanoseconds", 130)
     options.show_refresh_rate = matrix_config.get("show_refresh_rate", False)
+
+    # 👇 NEW: tell the library how the panel’s LEDs are wired
+    # Valid values: "RGB", "RBG", "GRB", "GBR", "BRG", "BGR"
+    options.led_rgb_sequence = matrix_config.get("rgb_sequence", "RBG")
     
     return RGBMatrix(options=options)
 
-
-def parse_color(color_dict: dict) -> tuple:
+def hex_to_rgb(hex_color: str) -> tuple:
     """
-    Parse a color dictionary to RGB tuple.
+    Parse a hex color string to RGB tuple.
     
     Args:
-        color_dict: Dictionary with 'r', 'g', 'b' keys.
+        hex_color: Hex color string (e.g., "#FFFFFF" or "FFFFFF").
     
     Returns:
         Tuple of (r, g, b) values.
     """
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) != 6:
+        raise ValueError(f"Invalid hex color format: {hex_color}")
     return (
-        color_dict.get("r", 255),
-        color_dict.get("g", 255),
-        color_dict.get("b", 255)
+        int(hex_color[0:2], 16),
+        int(hex_color[2:4], 16),
+        int(hex_color[4:6], 16)
     )
 
 
-def create_graphics_color(color_dict: dict) -> graphics.Color:
+def parse_color(color_input) -> tuple:
     """
-    Create an rgbmatrix graphics Color from a color dictionary.
+    Parse a color input (hex string or RGB dict) to RGB tuple.
     
     Args:
-        color_dict: Dictionary with 'r', 'g', 'b' keys.
+        color_input: Either a hex color string (e.g., "#FFFFFF") or
+                     a dictionary with 'r', 'g', 'b' keys.
+    
+    Returns:
+        Tuple of (r, g, b) values.
+    """
+    if isinstance(color_input, str):
+        return hex_to_rgb(color_input)
+    elif isinstance(color_input, dict):
+        return (
+            color_input.get("r", 255),
+            color_input.get("g", 255),
+            color_input.get("b", 255)
+        )
+    else:
+        raise ValueError(f"Invalid color format: {color_input}")
+
+
+def create_graphics_color(color_input) -> graphics.Color:
+    """
+    Create an rgbmatrix graphics Color from a color input.
+    
+    Args:
+        color_input: Either a hex color string (e.g., "#FFFFFF") or
+                     a dictionary with 'r', 'g', 'b' keys.
     
     Returns:
         graphics.Color instance.
     """
-    r, g, b = parse_color(color_dict)
+    r, g, b = parse_color(color_input)
     return graphics.Color(r, g, b)
 
 
-def load_font(font_name: str) -> graphics.Font:
+def load_font(font_name: str = "7x13.bdf") -> graphics.Font:
     """
     Load a BDF font file.
     
+    Searches for fonts in the following order:
+    1. Project assets/fonts directory (assets/fonts/)
+    2. rpi-rgb-led-matrix fonts directory
+    
     Args:
-        font_name: Name of the font file (e.g., '7x13.bdf').
+        font_name: Name of the font file (e.g., "7x13.bdf", "5x7.bdf").
     
     Returns:
-        graphics.Font instance.
+        Loaded graphics.Font instance.
+    
+    Raises:
+        FileNotFoundError: If font file cannot be found.
     """
     font = graphics.Font()
     
-    # First check the local fonts directory
-    local_font_path = get_project_root() / "fonts" / font_name
-    if local_font_path.exists():
-        font.LoadFont(str(local_font_path))
-        return font
+    # Try project assets/fonts directory first
+    project_root = get_project_root()
+    project_font_path = project_root / "assets" / "fonts" / font_name
     
-    # Fall back to the rpi-rgb-led-matrix fonts directory
-    system_font_paths = [
-        f"/usr/share/fonts/truetype/{font_name}",
-        f"/usr/local/share/fonts/{font_name}",
-        f"~/rpi-rgb-led-matrix/fonts/{font_name}",
-        os.path.expanduser(f"~/rpi-rgb-led-matrix/fonts/{font_name}"),
-    ]
+    # Try rpi-rgb-led-matrix fonts directory as fallback
+    system_font_path = Path("/home/pi/rpi-rgb-led-matrix/fonts") / font_name
     
-    for path in system_font_paths:
-        expanded_path = os.path.expanduser(path)
-        if os.path.exists(expanded_path):
-            font.LoadFont(expanded_path)
-            return font
+    if project_font_path.exists():
+        font_path = project_font_path
+    elif system_font_path.exists():
+        font_path = system_font_path
+    else:
+        # Last resort: try just the font name (might be in current directory)
+        font_path = Path(font_name)
+        if not font_path.exists():
+            raise FileNotFoundError(
+                f"Font file '{font_name}' not found. "
+                f"Tried: {project_font_path}, {system_font_path}, {font_path}"
+            )
     
-    # If no font found, try loading anyway (will use default)
-    try:
-        font.LoadFont(str(local_font_path))
-    except Exception:
-        pass
-    
+    font.LoadFont(str(font_path))
     return font
 
-
 def get_text_width(font: graphics.Font, text: str) -> int:
-    """
-    Calculate the pixel width of text with a given font.
-    
-    Args:
-        font: The graphics.Font to use.
-        text: The text string to measure.
-    
-    Returns:
-        Width in pixels.
-    """
+    """Calculate the pixel width of text with a given font."""
     width = 0
     for char in text:
         width += font.CharacterWidth(ord(char))
     return width
 
+
+def fill_canvas_background(canvas, color: graphics.Color):
+    """
+    Fill the entire canvas with a background color.
+    Uses DrawLine for each row, which is faster than SetPixel for each pixel.
+    """
+    for y in range(canvas.height):
+        graphics.DrawLine(canvas, 0, y, canvas.width - 1, y, color)
+
+
+def load_stylesheet() -> dict:
+    """
+    Load stylesheet from config/styles.json.
+    
+    Returns:
+        Parsed stylesheet dictionary.
+    
+    Raises:
+        FileNotFoundError: If styles.json doesn't exist.
+        json.JSONDecodeError: If styles.json is invalid JSON.
+    """
+    config_path = get_project_root() / "config" / "styles.json"
+    
+    if not config_path.exists():
+        # Return minimal default stylesheet
+        return {
+            "font_sizes": {
+                "small": "5x7.bdf",
+                "medium": "7x13.bdf",
+                "large": "7x13.bdf"
+            },
+            "defaults": {
+                "font_size": "medium",
+                "color": "#FFFFFF",
+                "background_color": "#000000",
+                "gap": 2,
+                "gravity": "center"
+            },
+            "classes": {},
+            "grids": {}
+        }
+    
+    with open(config_path, "r") as f:
+        return json.load(f)
+
+
+def get_font_size_mapping() -> dict:
+    """
+    Get font size preset mappings from stylesheet.
+    
+    Returns:
+        Dictionary mapping font size presets (small, medium, large) to font filenames.
+    """
+    stylesheet = load_stylesheet()
+    return stylesheet.get("font_sizes", {
+        "small": "5x7.bdf",
+        "medium": "7x13.bdf",
+        "large": "7x13.bdf"
+    })

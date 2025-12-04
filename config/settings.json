@@ -5,41 +5,67 @@
 		"chain_length": 1,
 		"parallel": 1,
 		"hardware_mapping": "adafruit-hat",
-		"brightness": 50,
+		"brightness": 100,
 		"gpio_slowdown": 4,
 		"pwm_bits": 11,
 		"pwm_lsb_nanoseconds": 130,
 		"show_refresh_rate": false
 	},
 	"text_scroller": {
-		"default_text": "Hello Fida!",
-		"scroll_speed": 0.03,
+		"default_text": "Good Morning Princess!",
+		"scroll_speed": 0.05,
 		"font": "7x13.bdf",
-		"color": {
-			"r": 255,
-			"g": 255,
-			"b": 255
-		}
+		"background_color": "#000000",
+		"color": "#B54300",
+		"brightness": 100
 	},
 	"clock": {
 		"format_24h": false,
-		"show_seconds": true,
+		"show_seconds": false,
 		"show_date": true,
 		"color": {
-			"r": 0,
+			"r": 255,
 			"g": 255,
 			"b": 128
 		}
 	},
 	"weather": {
-		"api_key": "YOUR_API_KEY_HERE",
-		"city": "New York",
+		"api_key": "25517bfcde938d026d2662e0387cb128",
+		"city": "Dubai",
 		"units": "metric",
 		"update_interval_seconds": 600,
 		"color": {
 			"r": 255,
 			"g": 200,
 			"b": 0
+		}
+	},
+	"time_weather_calendar": {
+		"clock": {
+			"format_24h": false,
+			"show_seconds": false
+		},
+		"weather": {
+			"api_key": "25517bfcde938d026d2662e0387cb128",
+			"city": "Dubai",
+			"units": "metric",
+			"update_interval_seconds": 600
+		}
+	},
+	"flight_tracker": {
+		"latitude": 25.090963479172967,
+		"longitude": 55.17415685278865,
+		"radius_km": 15,
+		"update_interval_seconds": 30,
+		"animation_speed": 0.5,
+		"api_provider": "rapidapi",
+		"rapidapi_key": "542e5aa248mshd370d30963facb9p1062a0jsn2f34034fac86",
+		"airport_iata": "DXB",
+		"demo_mode": false,
+		"color": {
+			"r": 0,
+			"g": 255,
+			"b": 255
 		}
 	}
 }

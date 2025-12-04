@@ -1,0 +1,101 @@
+{
+	"font_sizes": {
+		"xs": "4x6.bdf",
+		"small": "5x7.bdf",
+		"medium": "7x13.bdf",
+		"large": "7x13.bdf"
+	},
+	"defaults": {
+		"font_size": "medium",
+		"color": "#FFFFFF",
+		"background_color": "#000000",
+		"gap": 2,
+		"gravity": "center"
+	},
+	"classes": {
+		".time-display": {
+			"font_size": "small",
+			"color": "#FFFF80",
+			"gravity": "top-center"
+		},
+		".date-display": {
+			"font_size": "small",
+			"color": "#FFFF80",
+			"gravity": "center-center"
+		},
+		".weather-temp": {
+			"font_size": "large",
+			"color": "#FFC800",
+			"gravity": "top-left"
+		},
+		".weather-condition": {
+			"font_size": "small",
+			"color": "#FFC800",
+			"gravity": "center-left"
+		},
+		".text-scroller": {
+			"font_size": "medium",
+			"color": "#B54300",
+			"background_color": "#000000"
+		},
+		".time-weather-time": {
+			"font_size": "small",
+			"color": "#ffffff",
+			"gravity": "center",
+			"brightness": 100
+		},
+		".time-weather-date": {
+			"font_size": "xs",
+			"color": "#ffffff",
+			"gravity": "center",
+			"brightness": 50
+		},
+		".time-weather-icon": {
+			"font_size": "small",
+			"color": "#FFB310",
+			"gravity": "center"
+		},
+		".time-weather-temp": {
+			"font_size": "xs",
+			"color": "#FFB310",
+			"gravity": "center"
+		},
+		".time-weather-composite": {
+			"font_size": "xs",
+			"color": "#FFFF80",
+			"gravity": "center"
+		},
+		".flight-route": {
+			"font_size": "medium",
+			"color": "#ffffff",
+			"gravity": "top-center"
+		},
+		".flight-icon": {
+			"color": "#52BAFF"
+		},
+		".flight-number": {
+			"font_size": "small",
+			"color": "#52BAFF",
+			"gravity": "center-center",
+			"brightness": 100
+		}
+	},
+	"grids": {
+		"default": {
+			"columns": 1,
+			"rows": 1,
+			"gap": 2
+		},
+		"two-column": {
+			"columns": 2,
+			"rows": 1,
+			"gap": 4
+		},
+		"two-row": {
+			"columns": 2,
+			"rows": 2,
+			"gap": 8
+		}
+	}
+}
+

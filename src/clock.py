@@ -1,23 +1,23 @@
 """
 Clock module for LED matrix display.
 Displays current time and optionally date.
+Uses CSS-like styling system with class-based targeting.
 """
 
 import time
 from datetime import datetime
 
-from rgbmatrix import RGBMatrix, graphics
+from rgbmatrix import RGBMatrix
 
 from utils import (
     load_config,
     create_matrix,
-    create_graphics_color,
-    load_font,
 )
+from layout import LayoutEngine, Element
 
 
 class Clock:
-    """Displays current time on the LED matrix."""
+    """Displays current time on the LED matrix using CSS-like styling."""
     
     def __init__(self, matrix: RGBMatrix = None, config: dict = None):
         """
@@ -29,17 +29,14 @@ class Clock:
         """
         self.config = config or load_config()
         self.matrix = matrix or create_matrix(self.config)
-        self.canvas = self.matrix.CreateFrameCanvas()
+        
+        # Initialize layout engine with CSS-like styling
+        self.layout = LayoutEngine(self.matrix)
         
         clock_config = self.config.get("clock", {})
         self.format_24h = clock_config.get("format_24h", False)
         self.show_seconds = clock_config.get("show_seconds", True)
         self.show_date = clock_config.get("show_date", True)
-        self.color = create_graphics_color(clock_config.get("color", {"r": 0, "g": 255, "b": 128}))
-        
-        # Load fonts - use a larger font for time, smaller for date
-        self.time_font = load_font("7x13.bdf")
-        self.date_font = load_font("5x7.bdf")
     
     def get_time_string(self) -> str:
         """Get formatted time string based on config."""
@@ -62,29 +59,40 @@ class Clock:
         return now.strftime("%b %d, %Y")
     
     def display(self):
-        """Display the current time (and date if enabled)."""
-        self.canvas.Clear()
-        
+        """Display the current time (and date if enabled) using CSS-like styling."""
         time_str = self.get_time_string()
         
-        if self.show_date:
-            # Time on top, date on bottom
-            date_str = self.get_date_string()
-            
-            # Draw time centered at top
-            time_x = max(0, (self.matrix.width - len(time_str) * 7) // 2)
-            graphics.DrawText(self.canvas, self.time_font, time_x, 12, self.color, time_str)
-            
-            # Draw date centered at bottom
-            date_x = max(0, (self.matrix.width - len(date_str) * 5) // 2)
-            graphics.DrawText(self.canvas, self.date_font, date_x, 28, self.color, date_str)
-        else:
-            # Center time vertically
-            time_x = max(0, (self.matrix.width - len(time_str) * 7) // 2)
-            y_pos = (self.matrix.height // 2) + 5
-            graphics.DrawText(self.canvas, self.time_font, time_x, y_pos, self.color, time_str)
+        # Create elements with CSS-like classes
+        # These classes match rules in config/styles.json
+        elements = []
         
-        self.canvas = self.matrix.SwapOnVSync(self.canvas)
+        if self.show_date:
+            # Time element with class "time-display" (matches .time-display in stylesheet)
+            time_element = Element(
+                text=time_str,
+                classes=["time-display"]
+            )
+            elements.append(time_element)
+            
+            # Date element with class "date-display" (matches .date-display in stylesheet)
+            date_str = self.get_date_string()
+            date_element = Element(
+                text=date_str,
+                classes=["date-display"]
+            )
+            elements.append(date_element)
+        else:
+            # Just time, centered
+            time_element = Element(
+                text=time_str,
+                classes=["time-display"],
+                style_overrides={"gravity": "center"}  # Override to center vertically
+            )
+            elements.append(time_element)
+        
+        # Render all elements using the layout engine
+        # The layout engine will apply styles from stylesheet based on classes
+        self.layout.render(elements)
     
     def run(self, update_interval: float = 0.5):
         """
@@ -102,8 +110,7 @@ class Clock:
     
     def clear(self):
         """Clear the display."""
-        self.canvas.Clear()
-        self.canvas = self.matrix.SwapOnVSync(self.canvas)
+        self.layout.clear()
 
 
 def run():

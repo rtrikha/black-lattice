@@ -6,6 +6,8 @@ Usage:
     sudo python3 main.py --mode text --message "Hello World"
     sudo python3 main.py --mode clock
     sudo python3 main.py --mode weather
+    sudo python3 main.py --mode time_weather_calendar
+    sudo python3 main.py --mode flight_tracker
 """
 
 import argparse
@@ -15,6 +17,8 @@ from utils import load_config, create_matrix
 from text_scroller import TextScroller
 from clock import Clock
 from weather import Weather
+from time_weather_calendar import TimeWeatherCalendar
+from flight_tracker import FlightTracker
 
 
 def parse_args():
@@ -28,12 +32,13 @@ Examples:
   sudo python3 main.py --mode text --message "Scrolling!" --scroll
   sudo python3 main.py --mode clock
   sudo python3 main.py --mode weather
+  sudo python3 main.py --mode time_weather_calendar
         """
     )
     
     parser.add_argument(
         "--mode", "-m",
-        choices=["text", "clock", "weather"],
+        choices=["text", "clock", "weather", "time_weather_calendar", "flight_tracker"],
         default="text",
         help="Display mode (default: text)"
     )
@@ -145,6 +150,60 @@ def run_weather_mode(args, config, matrix):
         weather.clear()
 
 
+def run_time_weather_calendar_mode(args, config, matrix):
+    """Run time_weather_calendar composite display mode."""
+    # Check for API key in time_weather_calendar config or fallback to weather config
+    twc_config = config.get("time_weather_calendar", {})
+    weather_config = twc_config.get("weather", {}) if twc_config else {}
+    if not weather_config:
+        weather_config = config.get("weather", {})
+    
+    api_key = weather_config.get("api_key", "")
+    
+    if not api_key or api_key == "YOUR_API_KEY_HERE":
+        print("Warning: No API key configured!")
+        print("Edit config/settings.json and add your OpenWeatherMap API key")
+        print("Get a free key at: https://openweathermap.org/api")
+    
+    display = TimeWeatherCalendar(matrix=matrix, config=config)
+    
+    city = weather_config.get("city", "Unknown")
+    print(f"Displaying time, weather, and calendar for: {city}")
+    print("Press Ctrl+C to exit")
+    
+    try:
+        display.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        display.clear()
+
+
+def run_flight_tracker_mode(args, config, matrix):
+    """Run flight tracker display mode."""
+    flight_config = config.get("flight_tracker", {})
+    latitude = flight_config.get("latitude", 0.0)
+    longitude = flight_config.get("longitude", 0.0)
+    radius_km = flight_config.get("radius_km", 25)
+    
+    if latitude == 0.0 and longitude == 0.0:
+        print("Warning: No coordinates configured!")
+        print("Edit config/settings.json and add your latitude and longitude")
+        print("Example: \"latitude\": 25.2048, \"longitude\": 55.2708")
+    
+    tracker = FlightTracker(matrix=matrix, config=config)
+    
+    print(f"Tracking flights within {radius_km}km of ({latitude}, {longitude})")
+    print("Press Ctrl+C to exit")
+    
+    try:
+        tracker.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        tracker.clear()
+
+
 def main():
     """Main entry point."""
     args = parse_args()
@@ -180,6 +239,10 @@ def main():
             run_clock_mode(args, config, matrix)
         elif args.mode == "weather":
             run_weather_mode(args, config, matrix)
+        elif args.mode == "time_weather_calendar":
+            run_time_weather_calendar_mode(args, config, matrix)
+        elif args.mode == "flight_tracker":
+            run_flight_tracker_mode(args, config, matrix)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
