@@ -130,7 +130,7 @@ def run(text: str = None, scroll: bool = True, speed: float = None):
     scroller = TextScroller(config=config)
     
     if text is None:
-        text = config.get("text_scroller", {}).get("default_text", "Hello World!")
+        text = config.get("text_scroller", {}).get("default_text", "Hello Fida!")
     
     try:
         if scroll:
