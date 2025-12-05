@@ -58,29 +58,41 @@ class FlightTracker:
         # Load styles.json for styling
         self.styles = self._load_styles()
         route_style = self.styles.get("classes", {}).get(".flight-route", {})
+        route_city_style = self.styles.get("classes", {}).get(".flight-route-city", {})
         number_style = self.styles.get("classes", {}).get(".flight-number", {})
         icon_style = self.styles.get("classes", {}).get(".flight-icon", {})
         
         # Get colors from styles (fallback to config if not in styles)
         route_color_hex = route_style.get("color", "#00FFFF")
+        route_city_color_hex = route_city_style.get("color", "#00FFFF")
         number_color_hex = number_style.get("color", "#00FFFF")
         icon_color_hex = icon_style.get("color", "#0099FF")  # Default blue
         self.route_color = self._hex_to_color(route_color_hex)
+        self.route_city_color = self._hex_to_color(route_city_color_hex)
         self.number_color = self._hex_to_color(number_color_hex)
         
         # Extract RGB values for SetPixel calls
         self.route_color_rgb = self._color_to_rgb(route_color_hex)
+        self.route_city_color_rgb = self._color_to_rgb(route_city_color_hex)
         self.number_color_rgb = self._color_to_rgb(number_color_hex)
         self.icon_color_rgb = self._color_to_rgb(icon_color_hex)
         
         # Get font sizes from styles
         route_font_size = route_style.get("font_size", "medium")
+        route_city_font_size = route_city_style.get("font_size", "xs")
         number_font_size = number_style.get("font_size", "small")
         self.route_font = self._get_font(route_font_size)
+        self.route_city_font = self._get_font(route_city_font_size)
         self.number_font = self._get_font(number_font_size)
+        # Store font sizes for height calculations
+        self.route_font_size = route_font_size
+        self.route_city_font_size = route_city_font_size
+        self.number_font_size = number_font_size
         
         # Get brightness from styles (0-100, default 100)
         self.number_brightness = number_style.get("brightness", 100) / 100.0  # Convert to 0.0-1.0
+        self.route_brightness = route_style.get("brightness", 100) / 100.0  # Convert to 0.0-1.0
+        self.route_city_brightness = route_city_style.get("brightness", 100) / 100.0  # Convert to 0.0-1.0
         
         # Legacy color support (from config)
         self.color = create_graphics_color(flight_config.get("color", {"r": 0, "g": 255, "b": 255}))
@@ -88,6 +100,13 @@ class FlightTracker:
         # API provider
         self.api_provider = flight_config.get("api_provider", "rapidapi").lower()
         self.rapidapi_key = flight_config.get("rapidapi_key", "")
+        
+        # Aviation Edge API (for route lookups)
+        self.aviation_edge_key = flight_config.get("aviation_edge_key", "")
+        self.route_api_provider = flight_config.get("route_api_provider", "aviation_edge").lower()
+        
+        # Airport cache for Aviation Edge (to avoid repeated lookups)
+        self._airport_cache = {}
         
         # User-Agent for API requests
         self.user_agent = flight_config.get(
@@ -123,6 +142,15 @@ class FlightTracker:
         self.route_cache_time: Dict[str, float] = {}
         self.route_cache_ttl = 3600  # Cache routes for 1 hour
         
+        # Local route database (scraped from FlightAware)
+        self.route_database: Dict[str, Dict[str, str]] = {}
+        self._load_route_database()
+        
+        # Quota handling - stop API calls if quota exceeded
+        self.quota_exceeded = False
+        self.quota_exceeded_until = 0  # Timestamp when we can try again (24 hours)
+        self.quota_error_logged = False  # Only log quota error once
+        
         # Error handling
         self.consecutive_failures = 0
         self.last_error_time = 0
@@ -131,6 +159,41 @@ class FlightTracker:
         # Rate limiting - minimum time between API requests (OpenSky recommends being respectful)
         self.last_request_time = 0
         self.min_request_interval = 1.0  # Minimum 1 second between requests
+        
+        # Scrolling marquee for city/country line
+        self.city_country_scroll_position = 0
+        self.city_country_scroll_speed = 20  # pixels per second
+        self.last_scroll_time = time.time()
+        self.city_country_text_cache = ""  # Track when text changes to reset scroll
+        self.city_country_gap_size = 0  # Gap in pixels between loops
+    
+    def _load_route_database(self):
+        """Load local route database from data/flight_routes.json."""
+        project_root = get_project_root()
+        self.database_path = project_root / "data" / "flight_routes.json"
+        
+        if self.database_path.exists():
+            try:
+                with open(self.database_path, 'r', encoding='utf-8') as f:
+                    self.route_database = json.load(f)
+                print(f"Loaded {len(self.route_database)} routes from local database")
+            except Exception as e:
+                print(f"Warning: Could not load route database: {e}")
+                self.route_database = {}
+        else:
+            self.route_database = {}
+            print("No local route database found (data/flight_routes.json). It will be created automatically as routes are found.")
+    
+    def _save_route_database(self):
+        """Save route database to JSON file. Called automatically after successful API lookups."""
+        try:
+            # Create parent directory if it doesn't exist
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(self.database_path, 'w', encoding='utf-8') as f:
+                json.dump(self.route_database, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Warning: Could not save route database: {e}")
     
     def _load_styles(self) -> dict:
         """Load styles.json file."""
@@ -173,6 +236,28 @@ class FlightTracker:
         }
         font_file = self.styles.get("font_sizes", {}).get(font_size, font_map.get(font_size, "7x13.bdf"))
         return load_font(font_file)
+    
+    def _get_font_height(self, font_size: str) -> int:
+        """Get font height in pixels based on font size name."""
+        # Map font sizes to their heights (from BDF file names)
+        height_map = {
+            "xs": 6,      # 4x6.bdf
+            "small": 7,   # 5x7.bdf
+            "medium": 13, # 7x13.bdf
+            "large": 13   # 7x13.bdf
+        }
+        return height_map.get(font_size, 13)  # Default to 13 if unknown
+    
+    def _get_font_char_width(self, font_size: str) -> int:
+        """Get font character width in pixels based on font size name."""
+        # Map font sizes to their character widths (from BDF file names)
+        width_map = {
+            "xs": 4,      # 4x6.bdf
+            "small": 5,   # 5x7.bdf
+            "medium": 7, # 7x13.bdf
+            "large": 7    # 7x13.bdf
+        }
+        return width_map.get(font_size, 7)  # Default to 7 if unknown
     
     def _load_aircraft_icon(self) -> Optional[Image.Image]:
         """Load the aircraft icon from assets folder."""
@@ -374,20 +459,39 @@ class FlightTracker:
         "UPS": "5X",   # UPS Airlines
         "GTI": "GT",   # Atlas Air
     }
+    
+    # Country code to country name mapping (ISO 3166-1 alpha-2)
+    COUNTRY_CODE_TO_NAME = {
+        "AE": "UAE", "IN": "India", "US": "USA", "GB": "UK", "FR": "France",
+        "DE": "Germany", "IT": "Italy", "ES": "Spain", "NL": "Netherlands",
+        "BE": "Belgium", "CH": "Switzerland", "AT": "Austria", "SE": "Sweden",
+        "NO": "Norway", "DK": "Denmark", "FI": "Finland", "PL": "Poland",
+        "CZ": "Czechia", "GR": "Greece", "PT": "Portugal", "IE": "Ireland",
+        "TR": "Turkey", "EG": "Egypt", "SA": "Saudi", "KW": "Kuwait",
+        "QA": "Qatar", "BH": "Bahrain", "OM": "Oman", "JO": "Jordan",
+        "LB": "Lebanon", "IQ": "Iraq", "IR": "Iran", "PK": "Pakistan",
+        "BD": "Bangladesh", "LK": "Sri Lanka", "MM": "Myanmar", "TH": "Thailand",
+        "VN": "Vietnam", "PH": "Philippines", "ID": "Indonesia", "MY": "Malaysia",
+        "SG": "Singapore", "CN": "China", "JP": "Japan", "KR": "South Korea",
+        "TW": "Taiwan", "HK": "Hong Kong", "AU": "Australia", "NZ": "New Zealand",
+        "CA": "Canada", "MX": "Mexico", "BR": "Brazil", "AR": "Argentina",
+        "CL": "Chile", "CO": "Colombia", "PE": "Peru", "ZA": "South Africa",
+        "KE": "Kenya", "NG": "Nigeria", "GH": "Ghana", "MA": "Morocco",
+        "RU": "Russia", "UA": "Ukraine", "KZ": "Kazakhstan", "UZ": "Uzbekistan",
+    }
 
     def lookup_flight_route(self, flight_number: str) -> tuple:
         """
-        Look up flight route (origin/destination) using Aerodatabox API.
+        Look up flight route (origin/destination).
+        Checks local database first, then cache, then API as last resort.
         
         Args:
             flight_number: Flight number (e.g., "EK215", "SVA725")
         
         Returns:
-            Tuple of (origin, destination) airport codes, or ("", "") if not found.
+            Tuple of (origin, destination, origin_city, destination_city, origin_country, destination_country),
+            or ("", "", "", "", "", "") if not found.
         """
-        if not self.rapidapi_key:
-            return ("", "")
-        
         # Clean flight number (remove spaces, convert to uppercase)
         # Handle both string and other types
         if isinstance(flight_number, str):
@@ -395,7 +499,7 @@ class FlightTracker:
         else:
             flight_number = str(flight_number).strip().upper()
         
-        # Try to convert ICAO to IATA code for better API compatibility
+        # Try to convert ICAO to IATA code for better compatibility
         # Extract airline code (letters at the start) and flight number (digits + optional letter at end)
         match = re.match(r'^([A-Z]{2,3})(\d+[A-Z]?)$', flight_number)
         flight_numbers_to_try = [flight_number]  # Original first
@@ -409,18 +513,71 @@ class FlightTracker:
                 iata_code = self.ICAO_TO_IATA[airline_code]
                 iata_flight = f"{iata_code}{flight_num}"
                 flight_numbers_to_try.append(iata_flight)
-                print(f"DEBUG: Will try flight numbers: {flight_numbers_to_try}")
-        else:
-            # Non-standard flight number format (e.g., registration, ferry flight)
-            print(f"DEBUG: Non-standard flight number format: {flight_number} (may be ferry/positioning flight)")
         
-        # Check cache first (for any variant)
+        # STEP 1: Check local database first (O(1) lookup, zero API calls)
+        for fn in flight_numbers_to_try:
+            if fn in self.route_database:
+                route_data = self.route_database[fn]
+                # Update cache with database result
+                self.route_cache[fn] = route_data
+                self.route_cache_time[fn] = time.time()
+                return (route_data.get("origin", ""), 
+                       route_data.get("destination", ""),
+                       route_data.get("origin_city", ""),
+                       route_data.get("destination_city", ""),
+                       route_data.get("origin_country", ""),
+                       route_data.get("destination_country", ""))
+        
+        # STEP 2: Check cache (for any variant)
         for fn in flight_numbers_to_try:
             if fn in self.route_cache:
                 cache_time = self.route_cache_time.get(fn, 0)
                 if time.time() - cache_time < self.route_cache_ttl:
                     cached = self.route_cache[fn]
-                    return (cached.get("origin", ""), cached.get("destination", ""))
+                    return (cached.get("origin", ""), 
+                           cached.get("destination", ""),
+                           cached.get("origin_city", ""),
+                           cached.get("destination_city", ""),
+                           cached.get("origin_country", ""),
+                           cached.get("destination_country", ""))
+        
+        # STEP 3: Only call API as last resort (if API key available and quota not exceeded)
+        # Try Aviation Edge API first if configured
+        if self.route_api_provider == "aviation_edge" and self.aviation_edge_key:
+            route_data = self._lookup_route_aviation_edge(flight_numbers_to_try)
+            if route_data:
+                origin, destination, origin_city, destination_city, origin_country, destination_country = route_data
+                # Save to database automatically
+                route_dict = {
+                    "origin": origin,
+                    "destination": destination,
+                    "origin_city": origin_city,
+                    "destination_city": destination_city,
+                    "origin_country": origin_country,
+                    "destination_country": destination_country
+                }
+                if flight_number not in self.route_database:
+                    self.route_database[flight_number] = route_dict
+                    self._save_route_database()
+                    print(f"DEBUG: Saved route for {flight_number} to database: {origin} -> {destination}")
+                return route_data
+            # Aviation Edge failed - don't fall back to Aerodatabox if Aviation Edge is primary
+            return ("", "", "", "", "", "")
+        
+        # Fall back to Aerodatabox API (existing) only if Aviation Edge not configured
+        if not self.rapidapi_key:
+            return ("", "", "", "", "", "")
+        
+        # Check if quota is exceeded - don't make API calls
+        if self.quota_exceeded:
+            current_time = time.time()
+            if current_time < self.quota_exceeded_until:
+                # Still in cooldown period, return empty
+                return ("", "", "", "", "", "")
+            else:
+                # Cooldown expired, reset flag and try again
+                self.quota_exceeded = False
+                self.quota_error_logged = False
         
         # Get today's date in YYYY-MM-DD format
         today = datetime.now().strftime("%Y-%m-%d")
@@ -432,17 +589,24 @@ class FlightTracker:
             "User-Agent": self.user_agent
         }
         
-        # Try different endpoint formats
+        # Optimize: Only try the most reliable endpoint first
+        # Only try additional endpoints if the first one fails
+        # This reduces API calls from ~10 per flight to ~1-2 per flight
         endpoints_to_try = [
-            (self.API_URL_AERODATABOX1, today),
-            (self.API_URL_AERODATABOX1, yesterday),
-            (self.API_URL_AERODATABOX3, today),
-            (self.API_URL_AERODATABOX3, yesterday),
-            (self.API_URL_AERODATABOX2, None),  # This one doesn't need date
+            (self.API_URL_AERODATABOX1, today),  # Most reliable endpoint with today's date
         ]
         
+        # Only try more endpoints if first attempt fails AND quota not exceeded
+        if not self.quota_exceeded:
+            # Add fallback endpoints (only if needed)
+            endpoints_to_try.extend([
+                (self.API_URL_AERODATABOX1, yesterday),  # Try yesterday if today fails
+                (self.API_URL_AERODATABOX2, None),  # Alternative endpoint format
+            ])
+        
         first_attempt = True
-        # Try each flight number variant (original ICAO, then IATA conversion)
+        # Try original flight number first, only try IATA conversion if original fails
+        # This reduces calls from 2 variants × 5 endpoints = 10 calls to ~1-3 calls
         for fn_to_try in flight_numbers_to_try:
             for endpoint_template, date_str in endpoints_to_try:
                 if date_str:
@@ -463,6 +627,18 @@ class FlightTracker:
                             first_attempt = False
                         continue
                     
+                    # Handle quota exceeded (429)
+                    if response.status_code == 429:
+                        self.quota_exceeded = True
+                        # Don't try again for 24 hours
+                        self.quota_exceeded_until = time.time() + (24 * 3600)
+                        if not self.quota_error_logged:
+                            print(f"WARNING: API quota exceeded. Route lookups disabled for 24 hours.")
+                            print(f"  Response: {response.text[:200]}")
+                            self.quota_error_logged = True
+                        # Stop trying all endpoints immediately
+                        return ("", "", "", "", "", "")
+                    
                     if response.status_code != 200:
                         if first_attempt:
                             print(f"DEBUG: Aerodatabox API returned status {response.status_code} for flight {fn_to_try}")
@@ -477,6 +653,10 @@ class FlightTracker:
                         # Parse the response - format may vary
                         origin = ""
                         destination = ""
+                        origin_city = ""
+                        destination_city = ""
+                        origin_country = ""
+                        destination_country = ""
                     
                         # Try different response structures
                         if isinstance(data, list) and len(data) > 0:
@@ -495,13 +675,16 @@ class FlightTracker:
                                   flight_data.get("arr") or 
                                   flight_data.get("destination") or {})
                         
-                        # Get airport codes - handle nested structure
+                        # Get airport codes and location info - handle nested structure
                         # API returns: departure.airport.iata or just departure.iata
                         if isinstance(departure, dict):
                             airport = departure.get("airport")
                             if isinstance(airport, dict):
                                 # Nested: departure.airport.iata
                                 origin = airport.get("iata") or airport.get("icao") or ""
+                                # Extract city and country
+                                origin_city = airport.get("municipalityName") or airport.get("name") or ""
+                                origin_country = airport.get("countryCode") or ""
                             else:
                                 # Flat: departure.iata
                                 origin = (departure.get("iata") or 
@@ -516,6 +699,9 @@ class FlightTracker:
                             if isinstance(airport, dict):
                                 # Nested: arrival.airport.iata
                                 destination = airport.get("iata") or airport.get("icao") or ""
+                                # Extract city and country
+                                destination_city = airport.get("municipalityName") or airport.get("name") or ""
+                                destination_country = airport.get("countryCode") or ""
                             else:
                                 # Flat: arrival.iata
                                 destination = (arrival.get("iata") or 
@@ -553,19 +739,52 @@ class FlightTracker:
                         else:
                             destination = ""
                         
+                        # Clean city and country strings
+                        if isinstance(origin_city, str):
+                            origin_city = origin_city.strip()
+                        else:
+                            origin_city = str(origin_city).strip() if origin_city else ""
+                        
+                        if isinstance(destination_city, str):
+                            destination_city = destination_city.strip()
+                        else:
+                            destination_city = str(destination_city).strip() if destination_city else ""
+                        
+                        origin_country = origin_country.strip() if isinstance(origin_country, str) else str(origin_country).strip() if origin_country else ""
+                        destination_country = destination_country.strip() if isinstance(destination_country, str) else str(destination_country).strip() if destination_country else ""
+                        
                         # Cache the result (using original flight number as key)
                         if origin or destination:
-                            self.route_cache[flight_number] = {
+                            route_data = {
                                 "origin": origin,
-                                "destination": destination
+                                "destination": destination,
+                                "origin_city": origin_city,
+                                "destination_city": destination_city,
+                                "origin_country": origin_country,
+                                "destination_country": destination_country
                             }
+                            
+                            # Save to cache
+                            self.route_cache[flight_number] = route_data
                             self.route_cache_time[flight_number] = time.time()
+                            
+                            # Save to database for future lookups (auto-populate over time)
+                            if flight_number not in self.route_database:
+                                self.route_database[flight_number] = route_data
+                                self._save_route_database()
+                                print(f"DEBUG: Saved route for {flight_number} to database: {origin} -> {destination}")
+                            
+                            # Also save variant if different (e.g., IATA vs ICAO)
+                            if fn_to_try != flight_number and fn_to_try not in self.route_database:
+                                self.route_database[fn_to_try] = route_data
+                                self._save_route_database()
+                            
                             if fn_to_try != flight_number:
                                 print(f"DEBUG: Found route for {flight_number} (via {fn_to_try}): {origin} -> {destination}")
                             else:
                                 print(f"DEBUG: Found route for {flight_number}: {origin} -> {destination}")
                             
-                            return (origin, destination)
+                            return (origin, destination, origin_city, destination_city, origin_country, destination_country)
                         
                 except Exception as e:
                     if first_attempt:
@@ -576,6 +795,104 @@ class FlightTracker:
         # All endpoints failed (only print once)
         if flight_number not in self.route_cache:  # Don't spam if we've seen this flight before
             print(f"DEBUG: All Aerodatabox endpoints failed for flight {flight_number}")
+        return ("", "", "", "", "", "")
+    
+    def _lookup_route_aviation_edge(self, flight_numbers_to_try: List[str]) -> Optional[tuple]:
+        """
+        Look up flight route using Aviation Edge API.
+        Uses /flights endpoint with flightIcao parameter (capital I).
+        
+        Args:
+            flight_numbers_to_try: List of flight number variants to try
+        
+        Returns:
+            Tuple of (origin, destination, origin_city, destination_city, origin_country, destination_country),
+            or None if not found.
+        """
+        # Use /flights endpoint with flightIcao parameter (capital I)
+        # This accepts full flight number format like UAE215, QTR828, UAE8LT
+        for flight_number in flight_numbers_to_try:
+            try:
+                url = f"https://aviation-edge.com/v2/public/flights?key={self.aviation_edge_key}&flightIcao={flight_number}"
+                response = requests.get(url, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        # Take the first flight result
+                        flight = data[0]
+                        
+                        departure = flight.get("departure", {})
+                        arrival = flight.get("arrival", {})
+                        
+                        origin = departure.get("iataCode", "").strip()
+                        destination = arrival.get("iataCode", "").strip()
+                        
+                        if origin and destination:
+                            # Look up airport details for city/country
+                            origin_city, origin_country = self._get_airport_details(origin)
+                            dest_city, dest_country = self._get_airport_details(destination)
+                            
+                            return (origin, destination, origin_city, dest_city, origin_country, dest_country)
+                
+            except Exception as e:
+                # Continue to next variant
+                continue
+        
+        return None
+    
+    def _get_airport_details(self, airport_code: str) -> tuple:
+        """
+        Get airport city and country from Aviation Edge airport database.
+        Uses cache to avoid repeated API calls.
+        
+        Args:
+            airport_code: IATA airport code (e.g., "DXB")
+        
+        Returns:
+            Tuple of (city, country_code)
+        """
+        if not airport_code or not self.aviation_edge_key:
+            return ("", "")
+        
+        # Check cache first
+        if airport_code in self._airport_cache:
+            return self._airport_cache[airport_code]
+        
+        try:
+            url = f"https://aviation-edge.com/v2/public/airportDatabase?key={self.aviation_edge_key}&codeIataAirport={airport_code}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list) and len(data) > 0:
+                    airport = data[0]
+                    # nameAirport can be either city name or airport name
+                    # Try to extract city name by removing common airport suffixes
+                    airport_name = airport.get("nameAirport", "").strip()
+                    city = airport_name
+                    
+                    # If it contains airport-related terms, try to extract just the city
+                    # Remove common patterns: " Airport", " International", " International Airport"
+                    city = re.sub(r'\s+(International\s+)?Airport$', '', city, flags=re.IGNORECASE)
+                    city = re.sub(r'\s+International$', '', city, flags=re.IGNORECASE)
+                    # Remove other common airport name patterns
+                    city = re.sub(r'\s*\([^)]+\)$', '', city)  # Remove parentheses like "(Fiumicino)"
+                    
+                    # If after cleaning it's empty or too short, use the original
+                    if not city or len(city) < 2:
+                        city = airport_name
+                    
+                    country = airport.get("codeIso2Country", "").strip()
+                    
+                    # Cache the result
+                    self._airport_cache[airport_code] = (city, country)
+                    return (city, country)
+        except Exception:
+            pass
+        
+        # Return empty if not found
+        self._airport_cache[airport_code] = ("", "")
         return ("", "")
     
     def fetch_flights_adsbexchange(self) -> Optional[List[Dict]]:
@@ -717,15 +1034,38 @@ class FlightTracker:
                     existing_origin = closest_flight.get("origin", "")
                     existing_destination = closest_flight.get("destination", "")
                     
-                    # Look up route information using Aerodatabox API if not available
-                    if not existing_origin or not existing_destination:
+                    # If API already provided origin/destination codes, just get city/country for them
+                    # This avoids making an unnecessary route lookup API call
+                    if existing_origin and existing_destination:
+                        # API already has the codes - just get city/country details
+                        if not closest_flight.get("origin_city") or not closest_flight.get("destination_city"):
+                            origin_city, origin_country = self._get_airport_details(existing_origin)
+                            dest_city, dest_country = self._get_airport_details(existing_destination)
+                            if origin_city:
+                                closest_flight["origin_city"] = origin_city
+                            if origin_country:
+                                closest_flight["origin_country"] = origin_country
+                            if dest_city:
+                                closest_flight["destination_city"] = dest_city
+                            if dest_country:
+                                closest_flight["destination_country"] = dest_country
+                    else:
+                        # API doesn't have route info - look it up using Aviation Edge
                         callsign = closest_flight.get("callsign", "")
                         if callsign:
-                            origin, destination = self.lookup_flight_route(callsign)
+                            origin, destination, origin_city, dest_city, origin_country, dest_country = self.lookup_flight_route(callsign)
                             if origin:
                                 closest_flight["origin"] = origin
                             if destination:
                                 closest_flight["destination"] = destination
+                            if origin_city:
+                                closest_flight["origin_city"] = origin_city
+                            if dest_city:
+                                closest_flight["destination_city"] = dest_city
+                            if origin_country:
+                                closest_flight["origin_country"] = origin_country
+                            if dest_country:
+                                closest_flight["destination_country"] = dest_country
                     
                     return [closest_flight]  # Only return the closest flight
                 
@@ -905,15 +1245,38 @@ class FlightTracker:
                 existing_origin = closest_flight.get("origin", "")
                 existing_destination = closest_flight.get("destination", "")
                 
-                # Look up route information using Aerodatabox API if not available
-                if not existing_origin or not existing_destination:
+                # If RapidAPI already provided origin/destination codes, just get city/country for them
+                # This avoids making an unnecessary route lookup API call
+                if existing_origin and existing_destination:
+                    # RapidAPI already has the codes - just get city/country details
+                    if not closest_flight.get("origin_city") or not closest_flight.get("destination_city"):
+                        origin_city, origin_country = self._get_airport_details(existing_origin)
+                        dest_city, dest_country = self._get_airport_details(existing_destination)
+                        if origin_city:
+                            closest_flight["origin_city"] = origin_city
+                        if origin_country:
+                            closest_flight["origin_country"] = origin_country
+                        if dest_city:
+                            closest_flight["destination_city"] = dest_city
+                        if dest_country:
+                            closest_flight["destination_country"] = dest_country
+                else:
+                    # RapidAPI doesn't have route info - look it up using Aviation Edge
                     callsign = closest_flight.get("callsign", "")
                     if callsign:
-                        origin, destination = self.lookup_flight_route(callsign)
+                        origin, destination, origin_city, dest_city, origin_country, dest_country = self.lookup_flight_route(callsign)
                         if origin:
                             closest_flight["origin"] = origin
                         if destination:
                             closest_flight["destination"] = destination
+                        if origin_city:
+                            closest_flight["origin_city"] = origin_city
+                        if dest_city:
+                            closest_flight["destination_city"] = dest_city
+                        if origin_country:
+                            closest_flight["origin_country"] = origin_country
+                        if dest_country:
+                            closest_flight["destination_country"] = dest_country
                 
                 return [closest_flight]  # Return only the closest flight
             
@@ -1106,19 +1469,47 @@ class FlightTracker:
                     x_pos = max(2, (self.canvas.width - len(msg) * 5) // 2)
                     graphics.DrawText(self.canvas, self.small_font, x_pos, 16, self.color, msg)
             else:
-                # Show loading message only if we haven't attempted fetch yet AND no last seen flight
-                # Or if fetch is taking too long (more than 5 seconds), show a status
-                if self.has_attempted_fetch and self.first_fetch_start_time > 0:
-                    elapsed = current_time - self.first_fetch_start_time
-                    if elapsed > 5.0:
-                        # Fetch is taking too long, show status
-                        msg = "Connecting..."
+                # Show pulsing aircraft icon instead of "Loading..." text
+                if self.aircraft_icon:
+                    # Center the icon horizontally and vertically
+                    icon_size = self.aircraft_icon.size[0]
+                    icon_x = (self.canvas.width - icon_size) // 2
+                    icon_y = (self.canvas.height - icon_size) // 2
+                    
+                    # Pulse animation (similar to route icon pulse)
+                    fade_down_time = 0.5    # Time to fade from max to min
+                    gap_time = 1.0          # Pause at minimum brightness
+                    fade_up_time = 0.5      # Time to fade from min to max
+                    total_cycle = fade_down_time + gap_time + fade_up_time
+                    
+                    # Brightness range
+                    min_brightness = 0.3    # 30%
+                    max_brightness = 1.0    # 100%
+                    
+                    # Calculate position in animation cycle
+                    cycle_position = current_time % total_cycle
+                    
+                    if cycle_position < fade_down_time:
+                        # Fading down (100% -> 30%)
+                        progress = cycle_position / fade_down_time
+                        pulse_brightness = max_brightness - (max_brightness - min_brightness) * progress
+                    elif cycle_position < fade_down_time + gap_time:
+                        # Gap at minimum brightness
+                        pulse_brightness = min_brightness
                     else:
-                        msg = "Loading..."
+                        # Fading up (30% -> 100%)
+                        progress = (cycle_position - fade_down_time - gap_time) / fade_up_time
+                        pulse_brightness = min_brightness + (max_brightness - min_brightness) * progress
+                    
+                    # Draw pulsing aircraft icon
+                    self._draw_aircraft_icon(icon_x, icon_y, self.icon_color_rgb, 
+                                            brightness=pulse_brightness, 
+                                            visible=True)
                 else:
+                    # Fallback to text if icon not available
                     msg = "Loading..."
-                x_pos = max(2, (self.canvas.width - len(msg) * 5) // 2)
-                graphics.DrawText(self.canvas, self.small_font, x_pos, 16, self.color, msg)
+                    x_pos = max(2, (self.canvas.width - len(msg) * 5) // 2)
+                    graphics.DrawText(self.canvas, self.small_font, x_pos, 16, self.color, msg)
         else:
             # Get the closest flight (only one flight now)
             flight = self.flights[0]
@@ -1128,35 +1519,61 @@ class FlightTracker:
             
             
             # Calculate vertical positions for centered layout
+            # Layout: Flight number (top), Route (middle), City to Country (bottom)
             # Canvas height is 32 pixels
-            # Route line: use font height as reference (13px for medium 7x13 font)
-            # Icon is 12px tall, will be vertically centered with text
-            # Flight number: small font (5x7) is 7px tall
-            # Gap between them: 2px
+            # Get actual font heights from the fonts being used
             icon_size = 12
-            route_font_height = 13  # Medium font (7x13) for route
-            number_font_height = 7  # Small font (5x7) for flight number
-            gap = 2  # Gap between route and flight number
+            number_font_height = self._get_font_height(self.number_font_size)  # Dynamic based on style
+            route_font_height = self._get_font_height(self.route_font_size)  # Dynamic based on style
+            city_font_height = self._get_font_height(self.route_city_font_size)  # Dynamic based on style
+            gap1 = 0  # Gap between flight number and route
+            gap2 = 1  # Gap between route and city/country line
             
-            # Total content height: route line (use font height) + gap + number
-            total_content_height = route_font_height + gap + number_font_height
+            # Total content height: number + gap1 + route + gap2 + city
+            total_content_height = number_font_height + gap1 + route_font_height + gap2 + city_font_height
             
-            # Calculate top margin to center content vertically
-            top_margin = (self.canvas.height - total_content_height) // 2
+            # Calculate the visual center of the canvas
+            canvas_center_y = self.canvas.height / 2.0  # 16.0 for 32px canvas
             
-            # Route text baseline (bottom of text)
-            route_y = top_margin + route_font_height
+            # Calculate the visual center of our content block
+            # Move up by 2 pixels to balance spacing (4 grids top, 2 grids bottom -> 3 grids each)
+            top_margin = canvas_center_y - (total_content_height / 2.0) - 1
+            
+            # Flight number baseline (TOP LINE)
+            number_y = int(top_margin + number_font_height)
+            
+            # Route text baseline (MIDDLE LINE)
+            route_y = int(top_margin + number_font_height + gap1 + route_font_height)
+            
+            # City/Country text baseline (BOTTOM LINE)
+            city_y = int(top_margin + number_font_height + gap1 + route_font_height + gap2 + city_font_height)
             
             # Icon should be vertically centered with the route text
             # For 7x13 font, the visual center is about 6-7 pixels above baseline
             # Position icon so its center aligns with text visual center
             text_visual_center = route_y - 6  # Approximate visual center of text
-            icon_y = text_visual_center - icon_size // 2 + 1  # Center icon, then move 2 pixels down
+            icon_y = text_visual_center - icon_size // 2 + 1  # Center icon, then move 1 pixel down
             
-            # Flight number: starts after gap, baseline at bottom of text
-            number_y = top_margin + route_font_height + gap + number_font_height
+            # Display flight number on TOP LINE - HORIZONTALLY CENTERED
+            # Truncate if too long for display
+            if len(callsign) > 10:
+                callsign = callsign[:10]
             
-            # Display route on first line with aircraft icon - CENTERED
+            # Flight number character width (dynamic based on font size)
+            number_char_width = self._get_font_char_width(self.number_font_size)
+            number_width = len(callsign) * number_char_width
+            number_x = max(0, (self.canvas.width - number_width) // 2)
+            
+            # Apply brightness from styles.json to flight number color
+            r, g, b = self.number_color_rgb
+            dimmed_r = int(r * self.number_brightness)
+            dimmed_g = int(g * self.number_brightness)
+            dimmed_b = int(b * self.number_brightness)
+            dimmed_number_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
+            
+            graphics.DrawText(self.canvas, self.number_font, number_x, number_y, dimmed_number_color, callsign)
+            
+            # Display route on BOTTOM LINE with aircraft icon - CENTERED
             if origin or destination:
                 # Get airport codes (first 3 characters)
                 orig_code = origin[:3] if origin and len(origin) >= 3 else origin
@@ -1182,9 +1599,14 @@ class FlightTracker:
                 icon_x = orig_x + orig_width + spacing
                 dest_x = icon_x + icon_width + spacing
                 
-                # Draw origin code
+                # Draw origin code with brightness from styles.json
                 if orig_code:
-                    graphics.DrawText(self.canvas, self.route_font, orig_x, route_y, self.route_color, orig_code)
+                    r, g, b = self.route_color_rgb
+                    dimmed_r = int(r * self.route_brightness)
+                    dimmed_g = int(g * self.route_brightness)
+                    dimmed_b = int(b * self.route_brightness)
+                    dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
+                    graphics.DrawText(self.canvas, self.route_font, orig_x, route_y, dimmed_route_color, orig_code)
                 
                 # Draw aircraft icon between origin and destination (with pulse + gap)
                 if self.aircraft_icon and orig_code and dest_code:
@@ -1218,31 +1640,104 @@ class FlightTracker:
                                             brightness=pulse_brightness, 
                                             visible=True)
                 elif orig_code and dest_code:
-                    # Fallback: draw simple arrow if icon not available
-                    graphics.DrawText(self.canvas, self.route_font, icon_x, route_y, self.route_color, "->")
+                    # Fallback: draw simple arrow if icon not available (with brightness)
+                    r, g, b = self.route_color_rgb
+                    dimmed_r = int(r * self.route_brightness)
+                    dimmed_g = int(g * self.route_brightness)
+                    dimmed_b = int(b * self.route_brightness)
+                    dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
+                    graphics.DrawText(self.canvas, self.route_font, icon_x, route_y, dimmed_route_color, "->")
                 
-                # Draw destination code
+                # Draw destination code with brightness from styles.json
                 if dest_code:
-                    graphics.DrawText(self.canvas, self.route_font, dest_x, route_y, self.route_color, dest_code)
+                    r, g, b = self.route_color_rgb
+                    dimmed_r = int(r * self.route_brightness)
+                    dimmed_g = int(g * self.route_brightness)
+                    dimmed_b = int(b * self.route_brightness)
+                    dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
+                    graphics.DrawText(self.canvas, self.route_font, dest_x, route_y, dimmed_route_color, dest_code)
+            else:
+                # No route data available - show just "UFO" text (no icon)
+                ufo_text = "UFO"
+                route_char_width = 7  # Medium font width
+                ufo_width = len(ufo_text) * route_char_width
+                
+                # Center horizontally
+                ufo_x = max(0, (self.canvas.width - ufo_width) // 2)
+                
+                # Draw "UFO" text with brightness from styles.json
+                r, g, b = self.route_color_rgb
+                dimmed_r = int(r * self.route_brightness)
+                dimmed_g = int(g * self.route_brightness)
+                dimmed_b = int(b * self.route_brightness)
+                dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
+                graphics.DrawText(self.canvas, self.route_font, ufo_x, route_y, dimmed_route_color, ufo_text)
             
-            # Display flight number on second line - HORIZONTALLY CENTERED
-            # Truncate if too long for display
-            if len(callsign) > 10:
-                callsign = callsign[:10]
+            # Display city to city on THIRD LINE (if available) - SCROLLING MARQUEE
+            origin_city = flight.get("origin_city", "")
+            destination_city = flight.get("destination_city", "")
             
-            # Flight number uses SMALL font (5x7) = 5 pixels wide per character
-            number_char_width = 5
-            number_width = len(callsign) * number_char_width
-            number_x = max(0, (self.canvas.width - number_width) // 2)
-            
-            # Apply brightness from styles.json to flight number color
-            r, g, b = self.number_color_rgb
-            dimmed_r = int(r * self.number_brightness)
-            dimmed_g = int(g * self.number_brightness)
-            dimmed_b = int(b * self.number_brightness)
-            dimmed_number_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
-            
-            graphics.DrawText(self.canvas, self.number_font, number_x, number_y, dimmed_number_color, callsign)
+            if origin_city and destination_city:
+                # Format: "Dubai to Dubai" or "Dubai to London"
+                city_country_text = f"{origin_city} to {destination_city}"
+                
+                # Reset scroll position if text changed
+                if city_country_text != self.city_country_text_cache:
+                    self.city_country_scroll_position = 0
+                    self.city_country_text_cache = city_country_text
+                    self.last_scroll_time = time.time()
+                
+                # Use route city font and style from styles.json
+                city_font = self.route_city_font
+                city_char_width = self._get_font_char_width(self.route_city_font_size)
+                city_width = len(city_country_text) * city_char_width
+                canvas_width = self.canvas.width
+                
+                # Only scroll if text is wider than the canvas
+                if city_width > canvas_width:
+                    # Update scroll position based on time
+                    current_time = time.time()
+                    scroll_delta = current_time - self.last_scroll_time
+                    self.last_scroll_time = current_time
+                    
+                    # Move scroll position (pixels per second)
+                    self.city_country_scroll_position += self.city_country_scroll_speed * scroll_delta
+                    
+                    # Calculate when text is completely off-screen to the left
+                    # Text starts at canvas_width (right edge) when position = 0
+                    # Text is fully off left when position = canvas_width + city_width
+                    text_off_screen_position = canvas_width + city_width
+                    
+                    # Total cycle: text scrolling + gap
+                    total_cycle = text_off_screen_position + self.city_country_gap_size
+                    
+                    # Reset scroll position when it completes a full cycle
+                    if self.city_country_scroll_position >= total_cycle:
+                        self.city_country_scroll_position = 0
+                    
+                    # Calculate x position
+                    # Position 0: text starts at right edge (x = canvas_width)
+                    # Position text_off_screen_position: text fully off left (x = -city_width)
+                    # Position total_cycle: gap complete, ready to restart
+                    if self.city_country_scroll_position <= text_off_screen_position:
+                        # Text is visible or scrolling
+                        city_x = int(canvas_width - self.city_country_scroll_position)
+                    else:
+                        # In gap period - don't draw text (it's off-screen)
+                        city_x = -1000  # Way off screen
+                else:
+                    # Text fits, center it
+                    city_x = max(0, (canvas_width - city_width) // 2)
+                    # Reset scroll position when text fits
+                    self.city_country_scroll_position = 0
+                
+                # Use route city color and brightness from styles.json (separate from route codes)
+                r, g, b = self.route_city_color_rgb
+                dimmed_r = int(r * self.route_city_brightness)
+                dimmed_g = int(g * self.route_city_brightness)
+                dimmed_b = int(b * self.route_city_brightness)
+                dimmed_route_city_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
+                graphics.DrawText(self.canvas, city_font, city_x, city_y, dimmed_route_city_color, city_country_text)
             
             # Debug: Print what fields are available (only once per unique flight)
             if (not origin and not destination) and callsign not in getattr(self, '_debugged_flights', set()):
@@ -1251,7 +1746,8 @@ class FlightTracker:
                 self._debugged_flights.add(callsign)
                 print(f"DEBUG: Flight {callsign} - Route lookup failed")
                 print(f"  Origin: '{origin}', Destination: '{destination}'")
-                print(f"  Note: Aerodatabox API may not support this flight number format")
+                api_name = "Aviation Edge" if self.route_api_provider == "aviation_edge" else "Aerodatabox"
+                print(f"  Note: {api_name} API may not support this flight number format (may be private/charter/ferry flight)")
         
         # Always swap the canvas to ensure display updates
         self.canvas = self.matrix.SwapOnVSync(self.canvas)

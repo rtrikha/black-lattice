@@ -68,16 +68,22 @@
 		".flight-route": {
 			"font_size": "medium",
 			"color": "#ffffff",
-			"gravity": "top-center"
+			"gravity": "top-center",
+			"brightness": 100
+		},
+		".flight-route-city": {
+			"font_size": "xs",
+			"color": "#ffffff",
+			"gravity": "top-center",
+			"brightness": 50
 		},
 		".flight-icon": {
 			"color": "#52BAFF"
 		},
 		".flight-number": {
-			"font_size": "small",
+			"font_size": "xs",
 			"color": "#52BAFF",
-			"gravity": "center-center",
-			"brightness": 100
+			"gravity": "center-center"
 		}
 	},
 	"grids": {

@@ -22,3 +22,5 @@ else
     echo "API returned error status: $HTTP_CODE"
 fi
 
+
+

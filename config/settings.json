@@ -56,10 +56,12 @@
 		"latitude": 25.090963479172967,
 		"longitude": 55.17415685278865,
 		"radius_km": 15,
-		"update_interval_seconds": 30,
+		"update_interval_seconds": 60,
 		"animation_speed": 0.5,
 		"api_provider": "rapidapi",
 		"rapidapi_key": "542e5aa248mshd370d30963facb9p1062a0jsn2f34034fac86",
+		"aviation_edge_key": "a654e3-f56930",
+		"route_api_provider": "aviation_edge",
 		"airport_iata": "DXB",
 		"demo_mode": false,
 		"color": {
