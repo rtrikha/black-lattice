@@ -1,0 +1,20 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local environments and tools
+venv/
+.env
+
+# Local databases and caches
+*.sqlite
+
+# OS / misc
+.DS_Store
+
+# Local packages / installers
+*.deb
+
+# Secrets / tokens
+.cf_api_token

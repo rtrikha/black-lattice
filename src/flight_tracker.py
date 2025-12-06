@@ -22,6 +22,7 @@ from utils import (
     load_font,
     get_project_root,
 )
+from style_parser import create_style_manager
 
 
 class FlightTracker:
@@ -36,15 +37,66 @@ class FlightTracker:
     API_URL_AERODATABOX2 = "https://aerodatabox.p.rapidapi.com/flights/search/number/{flight_number}"
     API_URL_AERODATABOX3 = "https://aerodatabox.p.rapidapi.com/flights/{flight_number}/{date}"
     
-    def __init__(self, matrix: RGBMatrix = None, config: dict = None):
+    def __init__(self, matrix: RGBMatrix = None, config: dict = None, style_manager=None):
         """
         Initialize the FlightTracker display.
         
         Args:
             matrix: Optional RGBMatrix instance. Creates one if not provided.
             config: Optional config dict. Loads from file if not provided.
+            style_manager: Optional StyleManager instance (should be created BEFORE matrix).
         """
+        import os
         self.config = config or load_config()
+        self.style_manager = style_manager or create_style_manager()
+        self.project_root = get_project_root()
+        self._missing_aircraft_logged = False
+
+        # Preload aircraft icon BEFORE matrix init (avoid post-init permission issues)
+        self.aircraft_icon = self._load_aircraft_icon()
+
+        # Route DB path: always prefer project data/ directory
+        self.database_path = self.project_root / "data" / "flight_routes.json"
+        
+        # Load route database BEFORE matrix init (file access fails after matrix init)
+        self.route_database = {}
+        primary_path = self.project_root / "data" / "flight_routes.json"
+        shm_path = Path("/dev/shm/flight_routes.json")
+        tmp_path = Path("/tmp/flight_routes.json")
+        
+        for db_path in [primary_path, shm_path, tmp_path]:
+            try:
+                with open(db_path, 'r', encoding='utf-8') as f:
+                    self.route_database = json.load(f)
+                print(f"Loaded {len(self.route_database)} routes from local database ({db_path})")
+                self.database_path = db_path
+                break
+            except Exception:
+                continue
+        
+        if not self.route_database:
+            print("No local route database found. It will be created automatically.")
+
+        # Load styles BEFORE matrix init (os.path.exists can fail after matrix init)
+        self.styles = getattr(self.style_manager, "stylesheet", None) or self._load_styles()
+        
+        # Use flattened class_rules from StyleManager (handles nested structure)
+        # Fall back to direct access if style_manager not available
+        if hasattr(self.style_manager, 'class_rules'):
+            flattened_classes = self.style_manager.class_rules
+        else:
+            # Manually flatten nested classes structure
+            raw_classes = self.styles.get("classes", {})
+            flattened_classes = {}
+            for key, value in raw_classes.items():
+                if key.startswith("."):
+                    flattened_classes[key] = value
+                elif isinstance(value, dict):
+                    for class_key, class_value in value.items():
+                        if class_key.startswith(".") and isinstance(class_value, dict):
+                            flattened_classes[class_key] = class_value
+
+        # Matrix last so file accesses happen first
         self.matrix = matrix or create_matrix(self.config)
         self.canvas = self.matrix.CreateFrameCanvas()
         
@@ -55,12 +107,10 @@ class FlightTracker:
         self.update_interval = flight_config.get("update_interval_seconds", 30)
         self.animation_speed = flight_config.get("animation_speed", 0.5)
         
-        # Load styles.json for styling
-        self.styles = self._load_styles()
-        route_style = self.styles.get("classes", {}).get(".flight-route", {})
-        route_city_style = self.styles.get("classes", {}).get(".flight-route-city", {})
-        number_style = self.styles.get("classes", {}).get(".flight-number", {})
-        icon_style = self.styles.get("classes", {}).get(".flight-icon", {})
+        route_style = flattened_classes.get(".flight-route", {})
+        route_city_style = flattened_classes.get(".flight-route-city", {})
+        number_style = flattened_classes.get(".flight-number", {})
+        icon_style = flattened_classes.get(".flight-icon", {})
         
         # Get colors from styles (fallback to config if not in styles)
         route_color_hex = route_style.get("color", "#00FFFF")
@@ -115,9 +165,6 @@ class FlightTracker:
         )
         self.demo_mode = flight_config.get("demo_mode", False)
         
-        # Load aircraft icon
-        self.aircraft_icon = self._load_aircraft_icon()
-        
         # Keep legacy fonts for error/loading messages (backward compatibility)
         self.main_font = self.route_font  # Use route font as main
         self.small_font = self.number_font  # Use number font as small
@@ -126,6 +173,8 @@ class FlightTracker:
         self.flights: List[Dict] = []
         self.current_flight_index = 0
         self.last_update = 0
+        self.last_route_sync = 0  # For periodic sync of routes to main database
+        self.route_sync_interval = 60  # Sync every 60 seconds
         self.animation_state = True  # For blinking animation
         self.last_animation_toggle = time.time()
         
@@ -142,9 +191,8 @@ class FlightTracker:
         self.route_cache_time: Dict[str, float] = {}
         self.route_cache_ttl = 3600  # Cache routes for 1 hour
         
-        # Local route database (scraped from FlightAware)
-        self.route_database: Dict[str, Dict[str, str]] = {}
-        self._load_route_database()
+        # Local route database already loaded before matrix init
+        # (see early loading above - file access fails after matrix init)
         
         # Quota handling - stop API calls if quota exceeded
         self.quota_exceeded = False
@@ -169,37 +217,100 @@ class FlightTracker:
     
     def _load_route_database(self):
         """Load local route database from data/flight_routes.json."""
-        project_root = get_project_root()
-        self.database_path = project_root / "data" / "flight_routes.json"
+        import os
+        base = getattr(self, "project_root", None) or get_project_root()
         
-        if self.database_path.exists():
-            try:
-                with open(self.database_path, 'r', encoding='utf-8') as f:
-                    self.route_database = json.load(f)
-                print(f"Loaded {len(self.route_database)} routes from local database")
-            except Exception as e:
-                print(f"Warning: Could not load route database: {e}")
-                self.route_database = {}
-        else:
-            self.route_database = {}
-            print("No local route database found (data/flight_routes.json). It will be created automatically as routes are found.")
+        # Priority: 1) data/flight_routes.json, 2) /tmp/flight_routes.json
+        primary_path = base / "data" / "flight_routes.json"
+        fallback_path = Path("/tmp/flight_routes.json")
+        
+        # Try primary first (data/ directory)
+        try:
+            with open(primary_path, 'r', encoding='utf-8') as f:
+                self.route_database = json.load(f)
+            print(f"Loaded {len(self.route_database)} routes from local database ({primary_path})")
+            self.database_path = primary_path
+            return
+        except Exception as e:
+            print(f"Could not load from {primary_path}: {e}")
+        
+        # Fall back to /tmp
+        try:
+            with open(fallback_path, 'r', encoding='utf-8') as f:
+                self.route_database = json.load(f)
+            print(f"Loaded {len(self.route_database)} routes from local database ({fallback_path})")
+            self.database_path = fallback_path
+            return
+        except Exception as e:
+            print(f"Could not load from {fallback_path}: {e}")
+            
+        # No database found
+        self.route_database = {}
+        self.database_path = primary_path  # Will save to primary location
+        print("No local route database found. It will be created automatically as routes are found.")
     
     def _save_route_database(self):
         """Save route database to JSON file. Called automatically after successful API lookups."""
+        # After matrix init, rgbmatrix drops capabilities causing file write issues
+        # Solution: Write to /dev/shm (RAM filesystem) which has different permission model
+        import subprocess
         try:
-            # Create parent directory if it doesn't exist
-            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            routes_json = json.dumps(self.route_database, indent=2, ensure_ascii=False)
+            shm_path = "/dev/shm/flight_routes.json"
             
-            with open(self.database_path, 'w', encoding='utf-8') as f:
-                json.dump(self.route_database, f, indent=2, ensure_ascii=False)
+            # Write via a Python subprocess (new process not affected by capability drops)
+            save_script = f'''
+import json
+with open("{shm_path}", "w") as f:
+    f.write({repr(routes_json)})
+'''
+            subprocess.Popen(
+                ["python3", "-c", save_script],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
         except Exception as e:
             print(f"Warning: Could not save route database: {e}")
     
+    def _sync_routes_to_main_db(self):
+        """Sync routes from /dev/shm to data/flight_routes.json using subprocess (avoids permission issues)."""
+        import subprocess
+        try:
+            sync_script = '''
+import json
+from pathlib import Path
+shm_path = Path("/dev/shm/flight_routes.json")
+main_path = Path("/home/pi/black-lattice/data/flight_routes.json")
+if shm_path.exists():
+    with open(shm_path) as f: shm_routes = json.load(f)
+    main_routes = {}
+    if main_path.exists():
+        with open(main_path) as f: main_routes = json.load(f)
+    merged = {**main_routes, **shm_routes}
+    if len(merged) > len(main_routes):
+        with open(main_path, "w") as f: json.dump(merged, f, indent=2)
+        print(f"Synced routes: {len(main_routes)} -> {len(merged)}")
+'''
+            result = subprocess.run(
+                ["python3", "-c", sync_script],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.stdout.strip():
+                print(result.stdout.strip())
+        except Exception as e:
+            pass  # Silent fail - sync is best-effort
+    
     def _load_styles(self) -> dict:
         """Load styles.json file."""
+        import os
         project_root = get_project_root()
         styles_path = project_root / "config" / "styles.json"
         try:
+            # Use os.path.exists instead of pathlib.exists() to avoid permission issues
+            if not os.path.exists(styles_path):
+                return {}
             with open(styles_path, 'r') as f:
                 return json.load(f)
         except Exception as e:
@@ -234,6 +345,12 @@ class FlightTracker:
             "medium": "7x13.bdf",
             "large": "7x13.bdf"
         }
+        # Prefer shared StyleManager cache to avoid file access issues after matrix init
+        if self.style_manager:
+            try:
+                return self.style_manager.get_font(font_size)
+            except Exception:
+                pass
         font_file = self.styles.get("font_sizes", {}).get(font_size, font_map.get(font_size, "7x13.bdf"))
         return load_font(font_file)
     
@@ -261,38 +378,37 @@ class FlightTracker:
     
     def _load_aircraft_icon(self) -> Optional[Image.Image]:
         """Load the aircraft icon from assets folder."""
-        project_root = get_project_root()
-        icon_path = project_root / "assets" / "images" / "icons" / "aircraft.png"
+        import os
         
-        if not icon_path.exists():
-            # Try without icons subdirectory
-            icon_path = project_root / "assets" / "images" / "aircraft.png"
+        base = getattr(self, "project_root", None) or get_project_root()
+        candidates = [
+            base / "assets" / "images" / "icons" / "aircraft.png",
+            base / "assets" / "images" / "aircraft.png",
+        ]
         
-        if not icon_path.exists():
-            print(f"Warning: Aircraft icon not found at {icon_path}")
-            return None
+        for candidate in candidates:
+            try:
+                img = Image.open(candidate)
+                if img.mode != 'RGBA':
+                    img = img.convert('RGBA')
+                icon_size = 12
+                img = img.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
+                print(f"DEBUG: Loaded aircraft icon from {candidate}, size: {img.size}, mode: {img.mode}")
+                return img
+            except Exception as e:
+                continue
         
-        try:
-            img = Image.open(icon_path)
-            # Convert to RGBA if not already (handles transparency)
-            if img.mode != 'RGBA':
-                img = img.convert('RGBA')
-            
-            # Resize to a reasonable size (12x12 pixels to fit between airport codes)
-            icon_size = 12
-            img = img.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
-            print(f"DEBUG: Loaded aircraft icon from {icon_path}, size: {img.size}, mode: {img.mode}")
-            return img
-        except Exception as e:
-            print(f"Error loading aircraft icon: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        if not self._missing_aircraft_logged:
+            print(f"Warning: Aircraft icon not found in any expected location.")
+            print(f"  Tried: {candidates}")
+            self._missing_aircraft_logged = True
+        return None
     
-    def _draw_aircraft_icon(self, x: int, y: int, color_rgb: tuple, brightness: float = 1.0, visible: bool = True):
+    def _draw_aircraft_icon(self, canvas, x: int, y: int, color_rgb: tuple, brightness: float = 1.0, visible: bool = True):
         """Draw the aircraft icon at the given position with optional brightness/pulse effect.
         
         Args:
+            canvas: Canvas to draw on
             x: X position
             y: Y position
             color_rgb: Base color as (r, g, b) tuple
@@ -317,7 +433,7 @@ class FlightTracker:
             for px in range(icon_size):
                 pixel_x = x + px
                 pixel_y = y + py
-                if 0 <= pixel_x < self.canvas.width and 0 <= pixel_y < self.canvas.height:
+                if 0 <= pixel_x < canvas.width and 0 <= pixel_y < canvas.height:
                     try:
                         pixel = self.aircraft_icon.getpixel((px, py))
                         if len(pixel) == 4:  # RGBA
@@ -325,7 +441,7 @@ class FlightTracker:
                             if a < 128:  # Skip mostly transparent pixels
                                 continue
                         # Use the provided color with brightness applied
-                        self.canvas.SetPixel(pixel_x, pixel_y, r, g, b)
+                        canvas.SetPixel(pixel_x, pixel_y, r, g, b)
                     except Exception:
                         pass
     
@@ -478,6 +594,59 @@ class FlightTracker:
         "CL": "Chile", "CO": "Colombia", "PE": "Peru", "ZA": "South Africa",
         "KE": "Kenya", "NG": "Nigeria", "GH": "Ghana", "MA": "Morocco",
         "RU": "Russia", "UA": "Ukraine", "KZ": "Kazakhstan", "UZ": "Uzbekistan",
+    }
+    
+    # Airport code to city name mapping (for common airports)
+    AIRPORT_TO_CITY = {
+        # UAE
+        "DXB": "Dubai", "AUH": "Abu Dhabi", "SHJ": "Sharjah", "DWC": "Dubai",
+        # Saudi Arabia
+        "RUH": "Riyadh", "JED": "Jeddah", "DMM": "Dammam", "MED": "Medina",
+        # Gulf
+        "DOH": "Doha", "BAH": "Bahrain", "KWI": "Kuwait", "MCT": "Muscat",
+        # India
+        "BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "MAA": "Chennai",
+        "HYD": "Hyderabad", "CCU": "Kolkata", "COK": "Kochi", "GOI": "Goa",
+        "AMD": "Ahmedabad", "PNQ": "Pune", "JAI": "Jaipur", "LKO": "Lucknow",
+        # Pakistan
+        "KHI": "Karachi", "LHE": "Lahore", "ISB": "Islamabad",
+        # UK
+        "LHR": "London", "LGW": "London", "STN": "London", "LTN": "London",
+        "MAN": "Manchester", "BHX": "Birmingham", "EDI": "Edinburgh", "GLA": "Glasgow",
+        # Europe
+        "CDG": "Paris", "ORY": "Paris", "FRA": "Frankfurt", "MUC": "Munich",
+        "AMS": "Amsterdam", "BRU": "Brussels", "ZRH": "Zurich", "VIE": "Vienna",
+        "FCO": "Rome", "MXP": "Milan", "BCN": "Barcelona", "MAD": "Madrid",
+        "LIS": "Lisbon", "ATH": "Athens", "IST": "Istanbul", "SAW": "Istanbul",
+        "CPH": "Copenhagen", "ARN": "Stockholm", "OSL": "Oslo", "HEL": "Helsinki",
+        # USA
+        "JFK": "New York", "EWR": "New York", "LGA": "New York",
+        "LAX": "Los Angeles", "SFO": "San Francisco", "ORD": "Chicago",
+        "MIA": "Miami", "DFW": "Dallas", "ATL": "Atlanta", "BOS": "Boston",
+        "SEA": "Seattle", "DEN": "Denver", "IAH": "Houston", "PHX": "Phoenix",
+        "IAD": "Washington", "DCA": "Washington",
+        # Canada
+        "YYZ": "Toronto", "YVR": "Vancouver", "YUL": "Montreal",
+        # Asia
+        "SIN": "Singapore", "HKG": "Hong Kong", "BKK": "Bangkok",
+        "KUL": "Kuala Lumpur", "CGK": "Jakarta", "MNL": "Manila",
+        "NRT": "Tokyo", "HND": "Tokyo", "ICN": "Seoul", "GMP": "Seoul",
+        "PVG": "Shanghai", "SHA": "Shanghai", "PEK": "Beijing", "PKX": "Beijing",
+        "CAN": "Guangzhou", "SZX": "Shenzhen", "HGH": "Hangzhou",
+        "TPE": "Taipei", "KHH": "Kaohsiung",
+        # Australia/NZ
+        "SYD": "Sydney", "MEL": "Melbourne", "BNE": "Brisbane", "PER": "Perth",
+        "AKL": "Auckland", "WLG": "Wellington",
+        # Africa
+        "JNB": "Johannesburg", "CPT": "Cape Town", "CAI": "Cairo",
+        "ADD": "Addis Ababa", "NBO": "Nairobi", "LOS": "Lagos", "CMN": "Casablanca",
+        # South America
+        "GRU": "Sao Paulo", "GIG": "Rio", "EZE": "Buenos Aires",
+        "SCL": "Santiago", "BOG": "Bogota", "LIM": "Lima",
+        # Russia/CIS
+        "SVO": "Moscow", "DME": "Moscow", "VKO": "Moscow", "LED": "St Petersburg",
+        # Middle East
+        "TLV": "Tel Aviv", "AMM": "Amman", "BEY": "Beirut", "BGW": "Baghdad",
     }
 
     def lookup_flight_route(self, flight_number: str) -> tuple:
@@ -800,7 +969,7 @@ class FlightTracker:
     def _lookup_route_aviation_edge(self, flight_numbers_to_try: List[str]) -> Optional[tuple]:
         """
         Look up flight route using Aviation Edge API.
-        Uses /flights endpoint with flightIcao parameter (capital I).
+        Uses /routes endpoint with airlineIata and flightNumber parameters.
         
         Args:
             flight_numbers_to_try: List of flight number variants to try
@@ -809,24 +978,32 @@ class FlightTracker:
             Tuple of (origin, destination, origin_city, destination_city, origin_country, destination_country),
             or None if not found.
         """
-        # Use /flights endpoint with flightIcao parameter (capital I)
-        # This accepts full flight number format like UAE215, QTR828, UAE8LT
         for flight_number in flight_numbers_to_try:
             try:
-                url = f"https://aviation-edge.com/v2/public/flights?key={self.aviation_edge_key}&flightIcao={flight_number}"
+                # Extract airline code and flight number
+                match = re.match(r'^([A-Z]{2,3})(\d+[A-Z]?)$', flight_number)
+                if not match:
+                    continue
+                
+                airline_code = match.group(1)
+                flight_num = match.group(2)
+                
+                # Convert 3-letter ICAO to 2-letter IATA if needed
+                if len(airline_code) == 3 and airline_code in self.ICAO_TO_IATA:
+                    airline_code = self.ICAO_TO_IATA[airline_code]
+                
+                # Use /routes endpoint with airlineIata and flightNumber
+                url = f"https://aviation-edge.com/v2/public/routes?key={self.aviation_edge_key}&airlineIata={airline_code}&flightNumber={flight_num}"
                 response = requests.get(url, timeout=10)
                 
                 if response.status_code == 200:
                     data = response.json()
                     if isinstance(data, list) and len(data) > 0:
-                        # Take the first flight result
-                        flight = data[0]
+                        # Take the first route result
+                        route = data[0]
                         
-                        departure = flight.get("departure", {})
-                        arrival = flight.get("arrival", {})
-                        
-                        origin = departure.get("iataCode", "").strip()
-                        destination = arrival.get("iataCode", "").strip()
+                        origin = route.get("departureIata", "").strip()
+                        destination = route.get("arrivalIata", "").strip()
                         
                         if origin and destination:
                             # Look up airport details for city/country
@@ -852,12 +1029,34 @@ class FlightTracker:
         Returns:
             Tuple of (city, country_code)
         """
-        if not airport_code or not self.aviation_edge_key:
+        if not airport_code:
             return ("", "")
         
         # Check cache first
         if airport_code in self._airport_cache:
             return self._airport_cache[airport_code]
+        
+        # Check local mapping first (most reliable)
+        if airport_code in self.AIRPORT_TO_CITY:
+            city = self.AIRPORT_TO_CITY[airport_code]
+            # Try to get country from API or use empty
+            country = ""
+            try:
+                if self.aviation_edge_key:
+                    url = f"https://aviation-edge.com/v2/public/airportDatabase?key={self.aviation_edge_key}&codeIataAirport={airport_code}"
+                    response = requests.get(url, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if isinstance(data, list) and len(data) > 0:
+                            country = data[0].get("codeIso2Country", "").strip()
+            except Exception:
+                pass
+            self._airport_cache[airport_code] = (city, country)
+            return (city, country)
+        
+        # Fall back to API lookup
+        if not self.aviation_edge_key:
+            return ("", "")
         
         try:
             url = f"https://aviation-edge.com/v2/public/airportDatabase?key={self.aviation_edge_key}&codeIataAirport={airport_code}"
@@ -867,16 +1066,14 @@ class FlightTracker:
                 data = response.json()
                 if isinstance(data, list) and len(data) > 0:
                     airport = data[0]
-                    # nameAirport can be either city name or airport name
-                    # Try to extract city name by removing common airport suffixes
+                    
+                    # Get airport name and try to clean it
                     airport_name = airport.get("nameAirport", "").strip()
                     city = airport_name
                     
-                    # If it contains airport-related terms, try to extract just the city
-                    # Remove common patterns: " Airport", " International", " International Airport"
+                    # Remove common airport suffixes to get city name
                     city = re.sub(r'\s+(International\s+)?Airport$', '', city, flags=re.IGNORECASE)
                     city = re.sub(r'\s+International$', '', city, flags=re.IGNORECASE)
-                    # Remove other common airport name patterns
                     city = re.sub(r'\s*\([^)]+\)$', '', city)  # Remove parentheses like "(Fiumicino)"
                     
                     # If after cleaning it's empty or too short, use the original
@@ -1236,49 +1433,55 @@ class FlightTracker:
                             "last_contact": aircraft.get("PosTime") or aircraft.get("last_contact") or time.time()
                         })
             
-            # Sort by distance (closest first) and return only the closest flight
+            # Sort by distance (closest first) and try to find one with valid route
             if flights:
                 flights.sort(key=lambda x: x.get("distance", float('inf')))
-                closest_flight = flights[0]
                 
-                # Preserve any origin/destination from the initial API response
-                existing_origin = closest_flight.get("origin", "")
-                existing_destination = closest_flight.get("destination", "")
+                # Try up to 10 closest flights to find one with a valid route
+                for flight in flights[:10]:
+                    existing_origin = flight.get("origin", "")
+                    existing_destination = flight.get("destination", "")
+                    
+                    # If no route data, try to look it up
+                    if not existing_origin or not existing_destination:
+                        callsign = flight.get("callsign", "")
+                        if callsign:
+                            origin, destination, origin_city, dest_city, origin_country, dest_country = self.lookup_flight_route(callsign)
+                            if origin:
+                                flight["origin"] = origin
+                                existing_origin = origin
+                            if destination:
+                                flight["destination"] = destination
+                                existing_destination = destination
+                            if origin_city:
+                                flight["origin_city"] = origin_city
+                            if dest_city:
+                                flight["destination_city"] = dest_city
+                            if origin_country:
+                                flight["origin_country"] = origin_country
+                            if dest_country:
+                                flight["destination_country"] = dest_country
+                    
+                    # Check if route is valid (both set and different)
+                    if existing_origin and existing_destination and existing_origin != existing_destination:
+                        # Get city/country if not already set
+                        if not flight.get("origin_city"):
+                            origin_city, origin_country = self._get_airport_details(existing_origin)
+                            if origin_city:
+                                flight["origin_city"] = origin_city
+                            if origin_country:
+                                flight["origin_country"] = origin_country
+                        if not flight.get("destination_city"):
+                            dest_city, dest_country = self._get_airport_details(existing_destination)
+                            if dest_city:
+                                flight["destination_city"] = dest_city
+                            if dest_country:
+                                flight["destination_country"] = dest_country
+                        
+                        return [flight]  # Return first flight with valid route
                 
-                # If RapidAPI already provided origin/destination codes, just get city/country for them
-                # This avoids making an unnecessary route lookup API call
-                if existing_origin and existing_destination:
-                    # RapidAPI already has the codes - just get city/country details
-                    if not closest_flight.get("origin_city") or not closest_flight.get("destination_city"):
-                        origin_city, origin_country = self._get_airport_details(existing_origin)
-                        dest_city, dest_country = self._get_airport_details(existing_destination)
-                        if origin_city:
-                            closest_flight["origin_city"] = origin_city
-                        if origin_country:
-                            closest_flight["origin_country"] = origin_country
-                        if dest_city:
-                            closest_flight["destination_city"] = dest_city
-                        if dest_country:
-                            closest_flight["destination_country"] = dest_country
-                else:
-                    # RapidAPI doesn't have route info - look it up using Aviation Edge
-                    callsign = closest_flight.get("callsign", "")
-                    if callsign:
-                        origin, destination, origin_city, dest_city, origin_country, dest_country = self.lookup_flight_route(callsign)
-                        if origin:
-                            closest_flight["origin"] = origin
-                        if destination:
-                            closest_flight["destination"] = destination
-                        if origin_city:
-                            closest_flight["origin_city"] = origin_city
-                        if dest_city:
-                            closest_flight["destination_city"] = dest_city
-                        if origin_country:
-                            closest_flight["origin_country"] = origin_country
-                        if dest_country:
-                            closest_flight["destination_country"] = dest_country
-                
-                return [closest_flight]  # Return only the closest flight
+                # No flight with valid route found, return closest anyway
+                return [flights[0]]
             
             return []
             
@@ -1368,20 +1571,31 @@ class FlightTracker:
                 
                 # Reset flight index when new data arrives
                 if flights:
-                    # We have current flights - update last seen
-                    self.current_flight_index = 0
-                    # Store the first flight as last seen
-                    self.last_seen_flight = flights[0].copy()
-                    self.last_seen_flight["seen_at"] = current_time
-                    self.last_seen_time = current_time
+                    # Check if the flight has valid route data before storing as last_seen
+                    flight = flights[0]
+                    origin = flight.get("origin", "")
+                    destination = flight.get("destination", "")
+                    # Only update last_seen_flight if this flight has valid route data
+                    if origin and destination:
+                        self.current_flight_index = 0
+                        # Store the first flight as last seen (only if it has route data)
+                        self.last_seen_flight = flight.copy()
+                        self.last_seen_flight["seen_at"] = current_time
+                        self.last_seen_time = current_time
                 # If flights is empty list, keep the existing last_seen_flight
                 # This way we always have something to display
+            
+            # Periodically sync routes from /tmp to main database
+            if (current_time - self.last_route_sync) >= self.route_sync_interval:
+                self._sync_routes_to_main_db()
+                self.last_route_sync = current_time
     
-    def draw_plane_icon(self, x: int, y: int, visible: bool = True):
+    def draw_plane_icon(self, canvas, x: int, y: int, visible: bool = True):
         """
         Draw a simple plane icon at the given position.
         
         Args:
+            canvas: Canvas to draw on
             x: X coordinate (left position)
             y: Y coordinate (top position)
             visible: Whether the icon should be visible (for blinking)
@@ -1418,12 +1632,18 @@ class FlightTracker:
         ]
         
         for px, py in plane_pixels:
-            if 0 <= px < self.canvas.width and 0 <= py < self.canvas.height:
-                self.canvas.SetPixel(px, py, self.color.red, self.color.green, self.color.blue)
+            if 0 <= px < canvas.width and 0 <= py < canvas.height:
+                canvas.SetPixel(px, py, self.color.red, self.color.green, self.color.blue)
     
     def display(self):
         """Display flight information with animated plane icon."""
-        self.canvas.Clear()
+        # Use existing canvas for double buffering (reuse, don't create new each frame)
+        new_canvas = self.canvas
+        
+        # Clear canvas completely by filling with black (prevents leftover pixels)
+        black = graphics.Color(0, 0, 0)
+        for y in range(new_canvas.height):
+            graphics.DrawLine(new_canvas, 0, y, new_canvas.width - 1, y, black)
         
         # Update animation state
         current_time = time.time()
@@ -1445,36 +1665,36 @@ class FlightTracker:
                 callsign = self.last_seen_flight.get("callsign", "UNKNOWN")
                 
                 # Draw plane icon (blinking)
-                self.draw_plane_icon(2, 2, self.animation_state)
+                self.draw_plane_icon(new_canvas, 2, 2, self.animation_state)
                 
                 # Truncate if too long for display
                 if len(callsign) > 8:
                     callsign = callsign[:8]
                 
                 # Position text to the right of the icon
-                graphics.DrawText(self.canvas, self.main_font, 12, 12, self.color, callsign)
+                graphics.DrawText(new_canvas, self.main_font, 12, 12, self.color, callsign)
                 
                 # Show "Last:" indicator
-                graphics.DrawText(self.canvas, self.small_font, 12, 22, self.color, "Last:")
+                graphics.DrawText(new_canvas, self.small_font, 12, 22, self.color, "Last:")
             # Priority 2: If we've attempted fetch, show status (error or no flights)
             elif self.has_attempted_fetch:
                 if self.consecutive_failures > 0:
                     # Show API error message (we've tried and failed)
                     msg = "API error"
-                    graphics.DrawText(self.canvas, self.small_font, 2, 16, self.color, msg)
+                    graphics.DrawText(new_canvas, self.small_font, 2, 16, self.color, msg)
                 else:
                     # We've attempted fetch and got empty result (no flights in area)
                     msg = "No flights"
                     # Center the message
-                    x_pos = max(2, (self.canvas.width - len(msg) * 5) // 2)
-                    graphics.DrawText(self.canvas, self.small_font, x_pos, 16, self.color, msg)
+                    x_pos = max(2, (new_canvas.width - len(msg) * 5) // 2)
+                    graphics.DrawText(new_canvas, self.small_font, x_pos, 16, self.color, msg)
             else:
                 # Show pulsing aircraft icon instead of "Loading..." text
                 if self.aircraft_icon:
                     # Center the icon horizontally and vertically
                     icon_size = self.aircraft_icon.size[0]
-                    icon_x = (self.canvas.width - icon_size) // 2
-                    icon_y = (self.canvas.height - icon_size) // 2
+                    icon_x = (new_canvas.width - icon_size) // 2
+                    icon_y = (new_canvas.height - icon_size) // 2
                     
                     # Pulse animation (similar to route icon pulse)
                     fade_down_time = 0.5    # Time to fade from max to min
@@ -1502,17 +1722,43 @@ class FlightTracker:
                         pulse_brightness = min_brightness + (max_brightness - min_brightness) * progress
                     
                     # Draw pulsing aircraft icon
-                    self._draw_aircraft_icon(icon_x, icon_y, self.icon_color_rgb, 
+                    self._draw_aircraft_icon(new_canvas, icon_x, icon_y, self.icon_color_rgb, 
                                             brightness=pulse_brightness, 
                                             visible=True)
                 else:
                     # Fallback to text if icon not available
                     msg = "Loading..."
-                    x_pos = max(2, (self.canvas.width - len(msg) * 5) // 2)
-                    graphics.DrawText(self.canvas, self.small_font, x_pos, 16, self.color, msg)
+                    x_pos = max(2, (new_canvas.width - len(msg) * 5) // 2)
+                    graphics.DrawText(new_canvas, self.small_font, x_pos, 16, self.color, msg)
         else:
             # Get the closest flight (only one flight now)
-            flight = self.flights[0]
+            # But first check if it has valid route data, otherwise use last_seen_flight
+            flight = None
+            if self.flights:
+                current_flight = self.flights[0]
+                origin = current_flight.get("origin", "")
+                destination = current_flight.get("destination", "")
+                # Only use current flight if it has valid route data
+                if origin and destination:
+                    flight = current_flight
+            
+            # If current flight doesn't have valid route data, use last_seen_flight instead
+            if not flight and self.last_seen_flight:
+                last_origin = self.last_seen_flight.get("origin", "")
+                last_destination = self.last_seen_flight.get("destination", "")
+                # Only use last_seen_flight if it has valid route data
+                if last_origin and last_destination:
+                    flight = self.last_seen_flight
+            
+            # If we still don't have a valid flight with route data, use last_seen_flight anyway
+            # This prevents blank display - show the last flight even if it doesn't have route data
+            if not flight and self.last_seen_flight:
+                flight = self.last_seen_flight
+            
+            # If we truly have nothing, return early (shouldn't happen often)
+            if not flight:
+                return
+            
             callsign = flight.get("callsign", "UNKNOWN")
             origin = flight.get("origin", "")
             destination = flight.get("destination", "")
@@ -1533,7 +1779,7 @@ class FlightTracker:
             total_content_height = number_font_height + gap1 + route_font_height + gap2 + city_font_height
             
             # Calculate the visual center of the canvas
-            canvas_center_y = self.canvas.height / 2.0  # 16.0 for 32px canvas
+            canvas_center_y = new_canvas.height / 2.0  # 16.0 for 32px canvas
             
             # Calculate the visual center of our content block
             # Move up by 2 pixels to balance spacing (4 grids top, 2 grids bottom -> 3 grids each)
@@ -1562,7 +1808,7 @@ class FlightTracker:
             # Flight number character width (dynamic based on font size)
             number_char_width = self._get_font_char_width(self.number_font_size)
             number_width = len(callsign) * number_char_width
-            number_x = max(0, (self.canvas.width - number_width) // 2)
+            number_x = max(0, (new_canvas.width - number_width) // 2)
             
             # Apply brightness from styles.json to flight number color
             r, g, b = self.number_color_rgb
@@ -1571,7 +1817,7 @@ class FlightTracker:
             dimmed_b = int(b * self.number_brightness)
             dimmed_number_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
             
-            graphics.DrawText(self.canvas, self.number_font, number_x, number_y, dimmed_number_color, callsign)
+            graphics.DrawText(new_canvas, self.number_font, number_x, number_y, dimmed_number_color, callsign)
             
             # Display route on BOTTOM LINE with aircraft icon - CENTERED
             if origin or destination:
@@ -1592,7 +1838,7 @@ class FlightTracker:
                 total_width = orig_width + spacing + icon_width + spacing + dest_width
                 
                 # Center the route horizontally
-                start_x = max(0, (self.canvas.width - total_width) // 2)
+                start_x = max(0, (new_canvas.width - total_width) // 2)
                 
                 # Calculate exact positions with proper spacing
                 orig_x = start_x
@@ -1606,7 +1852,7 @@ class FlightTracker:
                     dimmed_g = int(g * self.route_brightness)
                     dimmed_b = int(b * self.route_brightness)
                     dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
-                    graphics.DrawText(self.canvas, self.route_font, orig_x, route_y, dimmed_route_color, orig_code)
+                    graphics.DrawText(new_canvas, self.route_font, orig_x, route_y, dimmed_route_color, orig_code)
                 
                 # Draw aircraft icon between origin and destination (with pulse + gap)
                 if self.aircraft_icon and orig_code and dest_code:
@@ -1636,7 +1882,7 @@ class FlightTracker:
                         pulse_brightness = min_brightness + (max_brightness - min_brightness) * progress
                     
                     # icon_y is pre-calculated to be vertically centered with text
-                    self._draw_aircraft_icon(icon_x, icon_y, self.icon_color_rgb, 
+                    self._draw_aircraft_icon(new_canvas, icon_x, icon_y, self.icon_color_rgb, 
                                             brightness=pulse_brightness, 
                                             visible=True)
                 elif orig_code and dest_code:
@@ -1646,7 +1892,7 @@ class FlightTracker:
                     dimmed_g = int(g * self.route_brightness)
                     dimmed_b = int(b * self.route_brightness)
                     dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
-                    graphics.DrawText(self.canvas, self.route_font, icon_x, route_y, dimmed_route_color, "->")
+                    graphics.DrawText(new_canvas, self.route_font, icon_x, route_y, dimmed_route_color, "->")
                 
                 # Draw destination code with brightness from styles.json
                 if dest_code:
@@ -1655,7 +1901,7 @@ class FlightTracker:
                     dimmed_g = int(g * self.route_brightness)
                     dimmed_b = int(b * self.route_brightness)
                     dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
-                    graphics.DrawText(self.canvas, self.route_font, dest_x, route_y, dimmed_route_color, dest_code)
+                    graphics.DrawText(new_canvas, self.route_font, dest_x, route_y, dimmed_route_color, dest_code)
             else:
                 # No route data available - show just "UFO" text (no icon)
                 ufo_text = "UFO"
@@ -1663,7 +1909,7 @@ class FlightTracker:
                 ufo_width = len(ufo_text) * route_char_width
                 
                 # Center horizontally
-                ufo_x = max(0, (self.canvas.width - ufo_width) // 2)
+                ufo_x = max(0, (new_canvas.width - ufo_width) // 2)
                 
                 # Draw "UFO" text with brightness from styles.json
                 r, g, b = self.route_color_rgb
@@ -1671,15 +1917,23 @@ class FlightTracker:
                 dimmed_g = int(g * self.route_brightness)
                 dimmed_b = int(b * self.route_brightness)
                 dimmed_route_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
-                graphics.DrawText(self.canvas, self.route_font, ufo_x, route_y, dimmed_route_color, ufo_text)
+                graphics.DrawText(new_canvas, self.route_font, ufo_x, route_y, dimmed_route_color, ufo_text)
             
             # Display city to city on THIRD LINE (if available) - SCROLLING MARQUEE
             origin_city = flight.get("origin_city", "")
             destination_city = flight.get("destination_city", "")
+            origin_country_code = flight.get("origin_country", "")
+            destination_country_code = flight.get("destination_country", "")
             
             if origin_city and destination_city:
-                # Format: "Dubai to Dubai" or "Dubai to London"
-                city_country_text = f"{origin_city} to {destination_city}"
+                # Format: "Dubai (UAE) to Mumbai (India)" or "Dubai to London"
+                origin_country_name = self.COUNTRY_CODE_TO_NAME.get(origin_country_code, "")
+                dest_country_name = self.COUNTRY_CODE_TO_NAME.get(destination_country_code, "")
+                
+                origin_display = f"{origin_city} ({origin_country_name})" if origin_country_name else origin_city
+                dest_display = f"{destination_city} ({dest_country_name})" if dest_country_name else destination_city
+                
+                city_country_text = f"{origin_display} to {dest_display}"
                 
                 # Reset scroll position if text changed
                 if city_country_text != self.city_country_text_cache:
@@ -1691,7 +1945,7 @@ class FlightTracker:
                 city_font = self.route_city_font
                 city_char_width = self._get_font_char_width(self.route_city_font_size)
                 city_width = len(city_country_text) * city_char_width
-                canvas_width = self.canvas.width
+                canvas_width = new_canvas.width
                 
                 # Only scroll if text is wider than the canvas
                 if city_width > canvas_width:
@@ -1737,7 +1991,7 @@ class FlightTracker:
                 dimmed_g = int(g * self.route_city_brightness)
                 dimmed_b = int(b * self.route_city_brightness)
                 dimmed_route_city_color = graphics.Color(dimmed_r, dimmed_g, dimmed_b)
-                graphics.DrawText(self.canvas, city_font, city_x, city_y, dimmed_route_city_color, city_country_text)
+                graphics.DrawText(new_canvas, city_font, city_x, city_y, dimmed_route_city_color, city_country_text)
             
             # Debug: Print what fields are available (only once per unique flight)
             if (not origin and not destination) and callsign not in getattr(self, '_debugged_flights', set()):
@@ -1749,8 +2003,8 @@ class FlightTracker:
                 api_name = "Aviation Edge" if self.route_api_provider == "aviation_edge" else "Aerodatabox"
                 print(f"  Note: {api_name} API may not support this flight number format (may be private/charter/ferry flight)")
         
-        # Always swap the canvas to ensure display updates
-        self.canvas = self.matrix.SwapOnVSync(self.canvas)
+        # Swap the new canvas to display (double buffering prevents flicker)
+        self.canvas = self.matrix.SwapOnVSync(new_canvas)
     
     def run(self, display_interval: float = 0.1):
         """

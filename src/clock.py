@@ -19,19 +19,21 @@ from layout import LayoutEngine, Element
 class Clock:
     """Displays current time on the LED matrix using CSS-like styling."""
     
-    def __init__(self, matrix: RGBMatrix = None, config: dict = None):
+    def __init__(self, matrix: RGBMatrix = None, config: dict = None, style_manager=None):
         """
         Initialize the Clock display.
         
         Args:
             matrix: Optional RGBMatrix instance. Creates one if not provided.
             config: Optional config dict. Loads from file if not provided.
+            style_manager: Optional StyleManager instance (should be created BEFORE matrix).
         """
         self.config = config or load_config()
         self.matrix = matrix or create_matrix(self.config)
         
         # Initialize layout engine with CSS-like styling
-        self.layout = LayoutEngine(self.matrix)
+        # Pass the pre-created style_manager if available
+        self.layout = LayoutEngine(self.matrix, style_manager=style_manager)
         
         clock_config = self.config.get("clock", {})
         self.format_24h = clock_config.get("format_24h", False)

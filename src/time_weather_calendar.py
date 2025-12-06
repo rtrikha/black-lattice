@@ -45,19 +45,51 @@ class TimeWeatherCalendar:
         "Tornado": "thunderstorm",
     }
     
-    def __init__(self, matrix: RGBMatrix = None, config: dict = None):
+    def __init__(self, matrix: RGBMatrix = None, config: dict = None, style_manager=None):
         """
         Initialize the TimeWeatherCalendar display.
         
         Args:
             matrix: Optional RGBMatrix instance. Creates one if not provided.
             config: Optional config dict. Loads from file if not provided.
+            style_manager: Optional StyleManager instance (should be created BEFORE matrix).
         """
+        import os
         self.config = config or load_config()
+        self.project_root = get_project_root()
+        self._missing_icons_logged = set()
+
+        # Preload icon images BEFORE matrix init to avoid post-init permission quirks
+        base_icons = self.project_root / "assets" / "images" / "icons"
+        self._icon_images = {}
+        for key, name in self.WEATHER_ICONS.items():
+            png_path = base_icons / f"{name}.png"
+            svg_path = base_icons / f"{name}.svg"
+            chosen_path = png_path if png_path.exists() else svg_path
+            try:
+                img = Image.open(chosen_path)
+                img = img.convert("RGB")
+                self._icon_images[key] = img
+            except Exception:
+                # If load fails, skip for now
+                pass
+        # Fallback sun icon
+        self._sun_icon_images = []
+        for sun_name in ["sun.png", "sun.svg"]:
+            sun_path = base_icons / sun_name
+            try:
+                img = Image.open(sun_path)
+                img = img.convert("RGB")
+                self._sun_icon_images.append(img)
+                break
+            except Exception:
+                continue
+
+        # Create matrix after resolving icon paths
         self.matrix = matrix or create_matrix(self.config)
-        
+
         # Initialize layout engine with CSS-like styling
-        self.layout = LayoutEngine(self.matrix)
+        self.layout = LayoutEngine(self.matrix, style_manager=style_manager)
         
         # Clock configuration
         clock_config = self.config.get("time_weather_calendar", {}).get("clock", {})
@@ -162,80 +194,32 @@ class TimeWeatherCalendar:
     
     def draw_weather_icon(self, canvas, x, y, condition):
         """Draw weather icon image based on condition."""
+        import os
+        
         icon_filename = self.WEATHER_ICONS.get(condition)
         if not icon_filename:
             return  # No icon for this condition
-        
-        # Look for icon in assets/images/icons/ directory
-        # Try both .svg and .png extensions
-        project_root = get_project_root()
-        icon_base = project_root / "assets" / "images" / "icons" / icon_filename
-        
-        # Try SVG first, then PNG
-        icon_path = None
-        for ext in ['.svg', '.png']:
-            test_path = icon_base.with_suffix(ext)
-            if test_path.exists():
-                icon_path = test_path
-                break
-        
-        # Fallback to assets/images/ if icons subdirectory doesn't exist
-        if not icon_path:
-            icon_base = project_root / "assets" / "images" / icon_filename
-            for ext in ['.svg', '.png']:
-                test_path = icon_base.with_suffix(ext)
-                if test_path.exists():
-                    icon_path = test_path
-                    break
-        
-        if not icon_path or not icon_path.exists():
-            print(f"Warning: Weather icon not found: {icon_filename}.svg or {icon_filename}.png")
-            print(f"  Searched in: {project_root / 'assets' / 'images' / 'icons'}")
-            print(f"  Condition: {condition}")
-            return
+
+        # Use preloaded icon image (loaded before matrix init)
+        icon_img = self._icon_images.get(condition)
+
+        # If not found, fallback to sun if available
+        if icon_img is None:
+            print(f"DEBUG icon miss: condition={condition}, cache_keys={list(self._icon_images.keys())}")
+            if self._sun_icon_images:
+                icon_img = self._sun_icon_images[0]
+            else:
+                # Log each missing icon only once
+                if icon_filename not in self._missing_icons_logged:
+                    print(f"Warning: Weather icon not found: {icon_filename}.svg or {icon_filename}.png")
+                    print(f"  Condition: {condition}")
+                    self._missing_icons_logged.add(icon_filename)
+                return
         
         try:
-            # Load and resize icon (target size: 10x10 pixels)
-            icon_size = 10
-            img = None
-            
-            # Handle SVG files
-            if icon_path.suffix.lower() == '.svg':
-                try:
-                    # Try using cairosvg if available
-                    import cairosvg
-                    # Convert SVG to PNG in memory
-                    png_data = cairosvg.svg2png(url=str(icon_path), output_width=icon_size, output_height=icon_size)
-                    from io import BytesIO
-                    img = Image.open(BytesIO(png_data))
-                    img = img.convert("RGB")
-                except ImportError:
-                    # Fallback: try svglib
-                    try:
-                        from svglib.svglib import svg2rlg
-                        from reportlab.graphics import renderPM
-                        drawing = svg2rlg(str(icon_path))
-                        if drawing:
-                            # Render to PNG in memory
-                            from io import BytesIO
-                            png_data = renderPM.drawToString(drawing, fmt='PNG', dpi=72)
-                            img = Image.open(BytesIO(png_data))
-                            img = img.convert("RGB")
-                            img = img.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
-                        else:
-                            print(f"Warning: Could not parse SVG: {icon_path}")
-                            return
-                    except ImportError:
-                        print(f"Warning: SVG support requires 'cairosvg' or 'svglib'. Install with: pip install cairosvg")
-                        print(f"  Or convert {icon_path} to PNG format")
-                        return
-            else:
-                # Handle regular image formats (PNG, JPG, etc.)
-                img = Image.open(icon_path)
-                img = img.convert("RGB")
-            
             # Resize to target size
-            img = img.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
+            icon_size = 10
+            img = icon_img.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
             
             # Draw icon on canvas at specified position
             # Handle images with transparency/alpha channel

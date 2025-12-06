@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LED Matrix Controller</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.online {
+            background: #44ff44;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .mode-section {
+            margin-bottom: 30px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .mode-section:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+        }
+
+        .mode-section.running {
+            border-color: #44ff44;
+            background: #f0fff4;
+        }
+
+        .mode-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .mode-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .mode-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+
+        .mode-status.stopped {
+            background: #f0f0f0;
+            color: #666;
+        }
+
+        .mode-status.running {
+            background: #44ff44;
+            color: #000;
+        }
+
+        .mode-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .text-input-group {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .text-input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .text-input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .text-input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-start {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-start:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #653a91 100%);
+        }
+
+        .btn-start:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-stop {
+            background: #ff4444;
+            color: white;
+        }
+
+        .btn-stop:hover {
+            background: #cc0000;
+        }
+
+        .btn-stop:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error-message {
+            background: #ffe0e0;
+            color: #cc0000;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .success-message {
+            background: #e0ffe0;
+            color: #00cc00;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .success-message.show {
+            display: block;
+        }
+
+        @media (max-width: 600px) {
+            .header h1 {
+                font-size: 1.5em;
+            }
+
+            .mode-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .mode-controls {
+                width: 100%;
+            }
+
+            button {
+                flex: 1;
+                min-width: 100px;
+            }
+        }
+
+        /* Logs Panel Styles */
+        .logs-section {
+            margin-top: 30px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .logs-header h3 {
+            margin: 0;
+            font-size: 1.1em;
+            color: #333;
+        }
+
+        .logs-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .logs-controls button {
+            padding: 6px 12px;
+            font-size: 0.85em;
+        }
+
+        .logs-controls label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+
+        .logs-content {
+            background: #1a1a2e;
+            color: #00ff00;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .logs-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .logs-content::-webkit-scrollbar-track {
+            background: #0a0a15;
+        }
+
+        .logs-content::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        .logs-content .log-line {
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .logs-content .log-line:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .logs-content .log-error {
+            color: #ff6b6b;
+        }
+
+        .logs-content .log-warning {
+            color: #ffd93d;
+        }
+
+        .logs-content .log-info {
+            color: #6bcb77;
+        }
+
+        .logs-content .log-debug {
+            color: #4d96ff;
+        }
+
+        .logs-empty {
+            color: #666;
+            font-style: italic;
+            text-align: center;
+            padding: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>LED Matrix Controller</h1>
+            <div class="status-indicator">
+                <div class="status-dot" id="piStatusDot"></div>
+                <span id="piStatusText">Checking...</span>
+            </div>
+        </div>
+
+        <!-- Utility Controls -->
+        <div class="utility-controls" style="margin-bottom: 20px; text-align: center;">
+            <button id="btn-clear-display" style="background: #666; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px;">
+                🔄 Clear Display
+            </button>
+        </div>
+
+        <div class="content">
+            <!-- Clock Mode -->
+            <div class="mode-section" id="mode-clock">
+                <div class="mode-header">
+                    <div class="mode-title">Clock</div>
+                    <div class="mode-status stopped" id="status-clock">Stopped</div>
+                </div>
+                <div class="mode-controls">
+                    <button class="btn-start" id="btn-start-clock">Start</button>
+                    <button class="btn-stop" id="btn-stop-clock" disabled>Stop</button>
+                </div>
+                <div class="error-message" id="error-clock"></div>
+                <div class="success-message" id="success-clock"></div>
+            </div>
+
+            <!-- Weather Mode -->
+            <div class="mode-section" id="mode-weather">
+                <div class="mode-header">
+                    <div class="mode-title">Weather</div>
+                    <div class="mode-status stopped" id="status-weather">Stopped</div>
+                </div>
+                <div class="mode-controls">
+                    <button class="btn-start" id="btn-start-weather">Start</button>
+                    <button class="btn-stop" id="btn-stop-weather" disabled>Stop</button>
+                </div>
+                <div class="error-message" id="error-weather"></div>
+                <div class="success-message" id="success-weather"></div>
+            </div>
+
+            <!-- Time Weather Calendar Mode -->
+            <div class="mode-section" id="mode-time_weather_calendar">
+                <div class="mode-header">
+                    <div class="mode-title">Time, Weather & Calendar</div>
+                    <div class="mode-status stopped" id="status-time_weather_calendar">Stopped</div>
+                </div>
+                <div class="mode-controls">
+                    <button class="btn-start" id="btn-start-time_weather_calendar">Start</button>
+                    <button class="btn-stop" id="btn-stop-time_weather_calendar" disabled>Stop</button>
+                </div>
+                <div class="error-message" id="error-time_weather_calendar"></div>
+                <div class="success-message" id="success-time_weather_calendar"></div>
+            </div>
+
+            <!-- Flight Tracker Mode -->
+            <div class="mode-section" id="mode-flight_tracker">
+                <div class="mode-header">
+                    <div class="mode-title">Flight Tracker</div>
+                    <div class="mode-status stopped" id="status-flight_tracker">Stopped</div>
+                </div>
+                <div class="mode-controls">
+                    <button class="btn-start" id="btn-start-flight_tracker">Start</button>
+                    <button class="btn-stop" id="btn-stop-flight_tracker" disabled>Stop</button>
+                </div>
+                <div class="error-message" id="error-flight_tracker"></div>
+                <div class="success-message" id="success-flight_tracker"></div>
+            </div>
+
+            <!-- Text Mode -->
+            <div class="mode-section" id="mode-text">
+                <div class="mode-header">
+                    <div class="mode-title">Text Display</div>
+                    <div class="mode-status stopped" id="status-text">Stopped</div>
+                </div>
+                <div class="text-input-group">
+                    <label for="text-message">Message:</label>
+                    <input type="text" id="text-message" placeholder="Enter text to display..." value="Hello World!">
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="text-scroll" checked>
+                    <label for="text-scroll">Enable Scrolling</label>
+                </div>
+                <div class="mode-controls">
+                    <button class="btn-start" id="btn-start-text">Start</button>
+                    <button class="btn-stop" id="btn-stop-text" disabled>Stop</button>
+                </div>
+                <div class="error-message" id="error-text"></div>
+                <div class="success-message" id="success-text"></div>
+            </div>
+
+            <!-- Logs Panel -->
+            <div class="logs-section">
+                <div class="logs-header">
+                    <h3>📋 Display Logs</h3>
+                    <div class="logs-controls">
+                        <label>
+                            <input type="checkbox" id="logs-auto-refresh" checked>
+                            Auto-refresh
+                        </label>
+                        <button id="btn-refresh-logs" style="background: #667eea; color: white;">↻ Refresh</button>
+                        <button id="btn-clear-logs" style="background: #666; color: white;">🗑 Clear</button>
+                    </div>
+                </div>
+                <div class="logs-content" id="logs-content">
+                    <div class="logs-empty">No logs yet. Start a display mode to see output.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Immediate test - should appear in console immediately
+        console.log('=== Script is loading ===');
+        
+        let pollInterval;
+        let statusInterval;
+
+        // Check Pi status on load and periodically
+        function checkPiStatus() {
+            fetch('/api/pi_status', {
+                credentials: 'same-origin'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const dot = document.getElementById('piStatusDot');
+                    const text = document.getElementById('piStatusText');
+                    if (data.status === 'online') {
+                        dot.classList.add('online');
+                        text.textContent = 'Pi Online';
+                    } else {
+                        dot.classList.remove('online');
+                        text.textContent = 'Pi Offline';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking Pi status:', error);
+                    const dot = document.getElementById('piStatusDot');
+                    const text = document.getElementById('piStatusText');
+                    dot.classList.remove('online');
+                    text.textContent = 'Pi Offline';
+                });
+        }
+
+        // Update status of all modes
+        function updateStatus() {
+            fetch('/api/status', {
+                credentials: 'same-origin'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    const activeMode = data.active_mode;
+                    const modes = ['clock', 'weather', 'time_weather_calendar', 'flight_tracker', 'text'];
+                    
+                    modes.forEach(mode => {
+                        const isRunning = data.modes[mode].running;
+                        const statusEl = document.getElementById(`status-${mode}`);
+                        const startBtn = document.getElementById(`btn-start-${mode}`);
+                        const stopBtn = document.getElementById(`btn-stop-${mode}`);
+                        const modeSection = document.getElementById(`mode-${mode}`);
+                        
+                        if (!statusEl || !startBtn || !stopBtn || !modeSection) {
+                            console.error('Missing elements for mode:', mode);
+                            return;
+                        }
+                        
+                        if (isRunning) {
+                            statusEl.textContent = 'Running';
+                            statusEl.className = 'mode-status running';
+                            startBtn.disabled = true;
+                            stopBtn.disabled = false;
+                            modeSection.classList.add('running');
+                        } else {
+                            statusEl.textContent = 'Stopped';
+                            statusEl.className = 'mode-status stopped';
+                            // Only disable start button if another mode is running (not this one)
+                            startBtn.disabled = (activeMode !== null && activeMode !== mode);
+                            stopBtn.disabled = true;
+                            modeSection.classList.remove('running');
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error updating status:', error);
+                    // Don't spam errors - only log occasionally
+                });
+        }
+
+        function showMessage(mode, type, message) {
+            const errorEl = document.getElementById(`error-${mode}`);
+            const successEl = document.getElementById(`success-${mode}`);
+            
+            if (type === 'error') {
+                errorEl.textContent = message;
+                errorEl.classList.add('show');
+                successEl.classList.remove('show');
+                setTimeout(() => errorEl.classList.remove('show'), 5000);
+            } else {
+                successEl.textContent = message;
+                successEl.classList.add('show');
+                errorEl.classList.remove('show');
+                setTimeout(() => successEl.classList.remove('show'), 3000);
+            }
+        }
+
+        function startMode(mode) {
+            console.log('startMode called for:', mode);
+            let body = {};
+            
+            if (mode === 'text') {
+                const message = document.getElementById('text-message').value;
+                const scroll = document.getElementById('text-scroll').checked;
+                body = { message: message || undefined, scroll: scroll };
+            }
+            
+            console.log('Sending POST request to:', `/api/start/${mode}`, 'with body:', body);
+            
+            fetch(`/api/start/${mode}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body),
+                credentials: 'same-origin'
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                if (data.success) {
+                    showMessage(mode, 'success', data.message || `Started ${mode} mode`);
+                    updateStatus();
+                } else {
+                    showMessage(mode, 'error', data.error || `Failed to start ${mode}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error in startMode:', error);
+                showMessage(mode, 'error', `Error: ${error.message}`);
+            });
+        }
+
+        function stopMode(mode) {
+            console.log('stopMode called for:', mode);
+            console.log('Sending POST request to:', `/api/stop/${mode}`);
+            
+            fetch(`/api/stop/${mode}`, {
+                method: 'POST',
+                credentials: 'same-origin'
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                if (data.success) {
+                    showMessage(mode, 'success', data.message || `Stopped ${mode} mode`);
+                    updateStatus();
+                } else {
+                    showMessage(mode, 'error', data.error || `Failed to stop ${mode}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error in stopMode:', error);
+                showMessage(mode, 'error', `Error: ${error.message}`);
+            });
+        }
+
+        // Make functions globally available
+        window.startMode = startMode;
+        window.stopMode = stopMode;
+        
+        // Logs functionality
+        let logsRefreshInterval;
+        
+        function fetchLogs() {
+            fetch('/api/logs?lines=200', {
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                const logsContent = document.getElementById('logs-content');
+                if (data.logs && data.logs.length > 0) {
+                    logsContent.innerHTML = data.logs.map(line => {
+                        // Color-code log lines
+                        let className = 'log-line';
+                        if (line.includes('[ERROR]') || line.toLowerCase().includes('error')) {
+                            className += ' log-error';
+                        } else if (line.includes('[WARNING]') || line.toLowerCase().includes('warning')) {
+                            className += ' log-warning';
+                        } else if (line.includes('[INFO]')) {
+                            className += ' log-info';
+                        } else if (line.includes('DEBUG')) {
+                            className += ' log-debug';
+                        }
+                        // Escape HTML
+                        const escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        return `<div class="${className}">${escaped}</div>`;
+                    }).join('');
+                    // Auto-scroll to bottom
+                    logsContent.scrollTop = logsContent.scrollHeight;
+                } else {
+                    logsContent.innerHTML = '<div class="logs-empty">No logs yet. Start a display mode to see output.</div>';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching logs:', error);
+            });
+        }
+        
+        function clearLogs() {
+            fetch('/api/logs/clear', {
+                method: 'POST',
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    fetchLogs();
+                }
+            })
+            .catch(error => {
+                console.error('Error clearing logs:', error);
+            });
+        }
+        
+        function startLogsAutoRefresh() {
+            if (logsRefreshInterval) clearInterval(logsRefreshInterval);
+            logsRefreshInterval = setInterval(fetchLogs, 2000);
+        }
+        
+        function stopLogsAutoRefresh() {
+            if (logsRefreshInterval) {
+                clearInterval(logsRefreshInterval);
+                logsRefreshInterval = null;
+            }
+        }
+        
+        // Add event listeners to buttons (more reliable than onclick)
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, setting up event listeners...');
+            
+            const modes = ['clock', 'weather', 'time_weather_calendar', 'flight_tracker', 'text'];
+            
+            modes.forEach(mode => {
+                const startBtn = document.getElementById(`btn-start-${mode}`);
+                const stopBtn = document.getElementById(`btn-stop-${mode}`);
+                
+                if (startBtn) {
+                    startBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        console.log('Start button clicked for:', mode);
+                        startMode(mode);
+                    });
+                    console.log('Added event listener to start button for:', mode);
+                } else {
+                    console.error('Start button not found for:', mode);
+                }
+                
+                if (stopBtn) {
+                    stopBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        console.log('Stop button clicked for:', mode);
+                        stopMode(mode);
+                    });
+                    console.log('Added event listener to stop button for:', mode);
+                } else {
+                    console.error('Stop button not found for:', mode);
+                }
+            });
+            
+            // Clear Display button
+            const clearBtn = document.getElementById('btn-clear-display');
+            if (clearBtn) {
+                clearBtn.addEventListener('click', async function(e) {
+                    e.preventDefault();
+                    clearBtn.disabled = true;
+                    clearBtn.textContent = '⏳ Clearing...';
+                    try {
+                        const response = await fetch('/api/clear', {
+                            method: 'POST',
+                            credentials: 'same-origin'
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                            clearBtn.textContent = '✓ Cleared!';
+                            setTimeout(() => {
+                                clearBtn.textContent = '🔄 Clear Display';
+                                clearBtn.disabled = false;
+                            }, 2000);
+                        } else {
+                            clearBtn.textContent = '❌ ' + (data.error || 'Failed');
+                            setTimeout(() => {
+                                clearBtn.textContent = '🔄 Clear Display';
+                                clearBtn.disabled = false;
+                            }, 3000);
+                        }
+                    } catch (err) {
+                        clearBtn.textContent = '❌ Error';
+                        setTimeout(() => {
+                            clearBtn.textContent = '🔄 Clear Display';
+                            clearBtn.disabled = false;
+                        }, 3000);
+                    }
+                    updateStatus();
+                });
+            }
+            
+            // Logs controls
+            const refreshLogsBtn = document.getElementById('btn-refresh-logs');
+            const clearLogsBtn = document.getElementById('btn-clear-logs');
+            const autoRefreshCheckbox = document.getElementById('logs-auto-refresh');
+            
+            if (refreshLogsBtn) {
+                refreshLogsBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    fetchLogs();
+                });
+            }
+            
+            if (clearLogsBtn) {
+                clearLogsBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    clearLogs();
+                });
+            }
+            
+            if (autoRefreshCheckbox) {
+                autoRefreshCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        startLogsAutoRefresh();
+                    } else {
+                        stopLogsAutoRefresh();
+                    }
+                });
+            }
+            
+            // Initialize
+            console.log('Initializing web interface...');
+            checkPiStatus();
+            updateStatus();
+            fetchLogs();  // Initial logs fetch
+            
+            // Poll Pi status every 5 seconds
+            pollInterval = setInterval(checkPiStatus, 5000);
+            
+            // Update mode status every 2 seconds
+            statusInterval = setInterval(updateStatus, 2000);
+            
+            // Start logs auto-refresh if checkbox is checked
+            if (autoRefreshCheckbox && autoRefreshCheckbox.checked) {
+                startLogsAutoRefresh();
+            }
+            
+            console.log('Web interface initialized');
+        });
+        
+        // Also run if DOM is already loaded
+        if (document.readyState === 'loading') {
+            // DOMContentLoaded will fire
+        } else {
+            // DOM is already loaded, trigger manually
+            console.log('DOM already loaded, triggering setup...');
+            const event = new Event('DOMContentLoaded');
+            document.dispatchEvent(event);
+        }
+    </script>
+</body>
+</html>
+
+

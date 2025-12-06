@@ -3,23 +3,23 @@
     "origin": "DXB",
     "destination": "LYS",
     "origin_city": "Dubai",
-    "destination_city": "St-Exupéry",
+    "destination_city": "St-Exup\u00e9ry",
     "origin_country": "AE",
     "destination_country": "FR"
   },
   "BAW276": {
     "origin": "HYD",
     "destination": "LHR",
-    "origin_city": "Hyderabad Airport",
-    "destination_city": "Heathrow",
+    "origin_city": "Hyderabad",
+    "destination_city": "London",
     "origin_country": "IN",
     "destination_country": "GB"
   },
   "QTR8939": {
     "origin": "CAN",
     "destination": "DOH",
-    "origin_city": "Guangzhou Baiyun International",
-    "destination_city": "Doha International",
+    "origin_city": "Guangzhou",
+    "destination_city": "Doha",
     "origin_country": "CN",
     "destination_country": "QA"
   },
@@ -27,47 +27,47 @@
     "origin": "DXB",
     "destination": "FCO",
     "origin_city": "Dubai",
-    "destination_city": "Leonardo Da Vinci (Fiumicino)",
+    "destination_city": "Rome",
     "origin_country": "AE",
     "destination_country": "IT"
   },
   "QTR8961": {
     "origin": "PVG",
     "destination": "DOH",
-    "origin_city": "Shanghai Pudong International",
-    "destination_city": "Doha International",
+    "origin_city": "Shanghai",
+    "destination_city": "Doha",
     "origin_country": "CN",
     "destination_country": "QA"
   },
   "MAS165": {
     "origin": "DOH",
     "destination": "KUL",
-    "origin_city": "Doha International",
-    "destination_city": "Kuala Lumpur International Airport (klia)",
+    "origin_city": "Doha",
+    "destination_city": "Kuala Lumpur",
     "origin_country": "QA",
     "destination_country": "MY"
   },
   "BAW134": {
     "origin": "BOM",
     "destination": "LHR",
-    "origin_city": "Chhatrapati Shivaji International (Sahar International)",
-    "destination_city": "Heathrow",
+    "origin_city": "Mumbai",
+    "destination_city": "London",
     "origin_country": "IN",
     "destination_country": "GB"
   },
   "JUMP5": {
     "origin": "DXB",
     "destination": "DXB",
-    "origin_city": "SkyDubai Airstrip (Private)",
-    "destination_city": "SkyDubai Airstrip (Private)",
+    "origin_city": "Dubai",
+    "destination_city": "Dubai",
     "origin_country": "AE",
     "destination_country": "AE"
   },
   "NSZ3999": {
     "origin": "DWC",
     "destination": "ARN",
-    "origin_city": "Dubai World Central",
-    "destination_city": "Arlanda",
+    "origin_city": "Dubai",
+    "destination_city": "Stockholm",
     "origin_country": "AE",
     "destination_country": "SE"
   },
@@ -75,7 +75,7 @@
     "origin": "DOH",
     "destination": "SIN",
     "origin_city": "Doha",
-    "destination_city": "Singapore Changi",
+    "destination_city": "Singapore",
     "origin_country": "QA",
     "destination_country": "SG"
   },
@@ -90,7 +90,7 @@
   "QTR5C": {
     "origin": "KHI",
     "destination": "DOH",
-    "origin_city": "Quaid-e-azam",
+    "origin_city": "Karachi",
     "destination_city": "Doha",
     "origin_country": "PK",
     "destination_country": "QA"
@@ -98,8 +98,8 @@
   "IGO0041": {
     "origin": "BOM",
     "destination": "CPH",
-    "origin_city": "Chhatrapati Shivaji International",
-    "destination_city": "Kastrup",
+    "origin_city": "Mumbai",
+    "destination_city": "Copenhagen",
     "origin_country": "IN",
     "destination_country": "DK"
   },
@@ -107,15 +107,15 @@
     "origin": "DXB",
     "destination": "LHR",
     "origin_city": "Dubai",
-    "destination_city": "Heathrow",
+    "destination_city": "London",
     "origin_country": "AE",
     "destination_country": "GB"
   },
   "CLX19G": {
     "origin": "DWC",
     "destination": "DOH",
-    "origin_city": "Dubai World Central",
-    "destination_city": "Doha International",
+    "origin_city": "Dubai",
+    "destination_city": "Doha",
     "origin_country": "AE",
     "destination_country": "GB"
   },
@@ -123,14 +123,14 @@
     "origin": "DOH",
     "destination": "CGK",
     "origin_city": "Doha",
-    "destination_city": "Soekarno-Hatta",
+    "destination_city": "Jakarta",
     "origin_country": "QA",
     "destination_country": "ID"
   },
   "ETD213": {
     "origin": "DEL",
     "destination": "AUH",
-    "origin_city": "Indira Gandhi",
+    "origin_city": "Delhi",
     "destination_city": "Abu Dhabi",
     "origin_country": "IN",
     "destination_country": "AE"
@@ -163,7 +163,7 @@
     "origin": "HYD",
     "destination": "RUH",
     "origin_city": "Hyderabad",
-    "destination_city": "King Khaled",
+    "destination_city": "Riyadh",
     "origin_country": "IN",
     "destination_country": "SA"
   },
@@ -178,7 +178,7 @@
   "QTR629": {
     "origin": "LHE",
     "destination": "DOH",
-    "origin_city": "Alama Iqbal",
+    "origin_city": "Lahore",
     "destination_city": "Doha",
     "origin_country": "PK",
     "destination_country": "QA"
@@ -186,7 +186,7 @@
   "EWG7CL": {
     "origin": "DWC",
     "destination": "BER",
-    "origin_city": "Dubai World Central",
+    "origin_city": "Dubai",
     "destination_city": "Berlin Brandenburg",
     "origin_country": "AE",
     "destination_country": "DE"
@@ -202,9 +202,233 @@
   "FDX5279": {
     "origin": "DEL",
     "destination": "CDG",
-    "origin_city": "Indira Gandhi",
-    "destination_city": "Charles De Gaulle",
+    "origin_city": "Delhi",
+    "destination_city": "Paris",
     "origin_country": "IN",
     "destination_country": "FR"
+  },
+  "KNE509": {
+    "origin": "JED",
+    "destination": "DXB",
+    "origin_city": "Jeddah",
+    "destination_city": "Dubai",
+    "origin_country": "SA",
+    "destination_country": "AE"
+  },
+  "BBC349": {
+    "origin": "DAC",
+    "destination": "DMM",
+    "origin_city": "Zia",
+    "destination_city": "Dammam",
+    "origin_country": "BD",
+    "destination_country": "SA"
+  },
+  "QTR8045": {
+    "origin": "HKG",
+    "destination": "DOH",
+    "origin_city": "Hong Kong",
+    "destination_city": "Doha",
+    "origin_country": "HK",
+    "destination_country": "QA"
+  },
+  "GFA765": {
+    "origin": "LHE",
+    "destination": "BAH",
+    "origin_city": "Lahore",
+    "destination_city": "Bahrain",
+    "origin_country": "PK",
+    "destination_country": "BH"
+  },
+  "GFA771": {
+    "origin": "ISB",
+    "destination": "BAH",
+    "origin_city": "Islamabad",
+    "destination_city": "Bahrain",
+    "origin_country": "PK",
+    "destination_country": "BH"
+  },
+  "PIA241": {
+    "origin": "KHI",
+    "destination": "DMM",
+    "origin_city": "Karachi",
+    "destination_city": "Dammam",
+    "origin_country": "PK",
+    "destination_country": "SA"
+  },
+  "GFA053": {
+    "origin": "MAA",
+    "destination": "BAH",
+    "origin_city": "Chennai",
+    "destination_city": "Bahrain",
+    "origin_country": "IN",
+    "destination_country": "BH"
+  },
+  "SVA180": {
+    "origin": "FRA",
+    "destination": "RUH",
+    "origin_city": "Frankfurt",
+    "destination_city": "Riyadh",
+    "origin_country": "DE",
+    "destination_country": "SA"
+  },
+  "UAE215": {
+    "origin": "DXB",
+    "destination": "LAX",
+    "origin_city": "Dubai",
+    "destination_city": "Los Angeles",
+    "origin_country": "AE",
+    "destination_country": "US"
+  },
+  "EK215": {
+    "origin": "DXB",
+    "destination": "LAX",
+    "origin_city": "Dubai",
+    "destination_city": "Los Angeles",
+    "origin_country": "AE",
+    "destination_country": "US"
+  },
+  "FDB911": {
+    "origin": "DXB",
+    "destination": "VKO",
+    "origin_city": "Dubai",
+    "destination_city": "Moscow",
+    "origin_country": "AE",
+    "destination_country": ""
+  },
+  "QTR1007": {
+    "origin": "DXB",
+    "destination": "DOH",
+    "origin_city": "Dubai",
+    "destination_city": "Doha",
+    "origin_country": "AE",
+    "destination_country": "QA"
+  },
+  "FDB897": {
+    "origin": "DXB",
+    "destination": "HOF",
+    "origin_city": "Dubai",
+    "destination_city": "Alahsa",
+    "origin_country": "AE",
+    "destination_country": "SA"
+  },
+  "SVA597": {
+    "origin": "DXB",
+    "destination": "RUH",
+    "origin_city": "Dubai",
+    "destination_city": "Riyadh",
+    "origin_country": "AE",
+    "destination_country": "SA"
+  },
+  "UAE502": {
+    "origin": "DXB",
+    "destination": "BOM",
+    "origin_city": "Dubai",
+    "destination_city": "Mumbai",
+    "origin_country": "AE",
+    "destination_country": "IN"
+  },
+  "GFA505": {
+    "origin": "DXB",
+    "destination": "BAH",
+    "origin_city": "Dubai",
+    "destination_city": "Bahrain",
+    "origin_country": "AE",
+    "destination_country": "BH"
+  },
+  "SVA558": {
+    "origin": "RUH",
+    "destination": "DXB",
+    "origin_city": "Riyadh",
+    "destination_city": "Dubai",
+    "origin_country": "SA",
+    "destination_country": "AE"
+  },
+  "BAW108": {
+    "origin": "DXB",
+    "destination": "LHR",
+    "origin_city": "Dubai",
+    "destination_city": "London",
+    "origin_country": "AE",
+    "destination_country": "GB"
+  },
+  "UAE566": {
+    "origin": "DXB",
+    "destination": "BLR",
+    "origin_city": "Dubai",
+    "destination_city": "Bangalore",
+    "origin_country": "AE",
+    "destination_country": "IN"
+  },
+  "RJA611": {
+    "origin": "DXB",
+    "destination": "AMM",
+    "origin_city": "Dubai",
+    "destination_city": "Amman",
+    "origin_country": "AE",
+    "destination_country": "JO"
+  },
+  "GFA251": {
+    "origin": "DAC",
+    "destination": "BAH",
+    "origin_city": "Zia",
+    "destination_city": "Bahrain",
+    "origin_country": "BD",
+    "destination_country": "BH"
+  },
+  "UAE41": {
+    "origin": "DXB",
+    "destination": "BHX",
+    "origin_city": "Dubai",
+    "destination_city": "Birmingham",
+    "origin_country": "AE",
+    "destination_country": "GB"
+  },
+  "IAW124": {
+    "origin": "DXB",
+    "destination": "BGW",
+    "origin_city": "Dubai",
+    "destination_city": "Baghdad",
+    "origin_country": "AE",
+    "destination_country": "IQ"
+  },
+  "UAE187": {
+    "origin": "DXB",
+    "destination": "BCN",
+    "origin_city": "Dubai",
+    "destination_city": "Barcelona",
+    "origin_country": "AE",
+    "destination_country": "ES"
+  },
+  "SVA565": {
+    "origin": "DXB",
+    "destination": "MED",
+    "origin_city": "Dubai",
+    "destination_city": "Medina",
+    "origin_country": "AE",
+    "destination_country": "SA"
+  },
+  "FDB819": {
+    "origin": "DXB",
+    "destination": "AHB",
+    "origin_city": "Dubai",
+    "destination_city": "Abha",
+    "origin_country": "AE",
+    "destination_country": "SA"
+  },
+  "UAE806": {
+    "origin": "JED",
+    "destination": "DXB",
+    "origin_city": "Jeddah",
+    "destination_city": "Dubai",
+    "origin_country": "SA",
+    "destination_country": "AE"
+  },
+  "IAW456": {
+    "origin": "KUL",
+    "destination": "BGW",
+    "origin_city": "Kuala Lumpur",
+    "destination_city": "Baghdad",
+    "origin_country": "MY",
+    "destination_country": "IQ"
   }
 }

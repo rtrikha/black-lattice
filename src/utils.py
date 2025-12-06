@@ -107,13 +107,32 @@ def create_graphics_color(color_input) -> graphics.Color:
     return graphics.Color(r, g, b)
 
 
+# Global font cache - fonts must be loaded BEFORE matrix creation
+# (rpi-rgb-led-matrix breaks file access after matrix init)
+_FONT_CACHE = {}
+
+
+def preload_fonts():
+    """
+    Preload all common fonts. Call this BEFORE creating RGBMatrix.
+    The rpi-rgb-led-matrix library changes process capabilities which breaks file access.
+    """
+    common_fonts = ["4x6.bdf", "5x7.bdf", "7x13.bdf"]
+    for font_name in common_fonts:
+        try:
+            load_font(font_name)
+        except FileNotFoundError as e:
+            print(f"Warning: Could not preload font {font_name}: {e}")
+
+
 def load_font(font_name: str = "7x13.bdf") -> graphics.Font:
     """
     Load a BDF font file.
     
     Searches for fonts in the following order:
-    1. Project assets/fonts directory (assets/fonts/)
-    2. rpi-rgb-led-matrix fonts directory
+    1. Global font cache (fonts preloaded before matrix creation)
+    2. Project assets/fonts directory (assets/fonts/)
+    3. rpi-rgb-led-matrix fonts directory
     
     Args:
         font_name: Name of the font file (e.g., "7x13.bdf", "5x7.bdf").
@@ -124,6 +143,12 @@ def load_font(font_name: str = "7x13.bdf") -> graphics.Font:
     Raises:
         FileNotFoundError: If font file cannot be found.
     """
+    global _FONT_CACHE
+    
+    # Check cache first
+    if font_name in _FONT_CACHE:
+        return _FONT_CACHE[font_name]
+    
     font = graphics.Font()
     
     # Try project assets/fonts directory first
@@ -133,20 +158,24 @@ def load_font(font_name: str = "7x13.bdf") -> graphics.Font:
     # Try rpi-rgb-led-matrix fonts directory as fallback
     system_font_path = Path("/home/pi/rpi-rgb-led-matrix/fonts") / font_name
     
-    if project_font_path.exists():
+    # Use os.path.exists instead of pathlib.exists() to avoid permission issues
+    if os.path.exists(project_font_path):
         font_path = project_font_path
-    elif system_font_path.exists():
+    elif os.path.exists(system_font_path):
         font_path = system_font_path
     else:
         # Last resort: try just the font name (might be in current directory)
         font_path = Path(font_name)
-        if not font_path.exists():
+        if not os.path.exists(font_path):
             raise FileNotFoundError(
                 f"Font file '{font_name}' not found. "
                 f"Tried: {project_font_path}, {system_font_path}, {font_path}"
             )
     
     font.LoadFont(str(font_path))
+    
+    # Cache the font
+    _FONT_CACHE[font_name] = font
     return font
 
 def get_text_width(font: graphics.Font, text: str) -> int:
@@ -166,40 +195,46 @@ def fill_canvas_background(canvas, color: graphics.Color):
         graphics.DrawLine(canvas, 0, y, canvas.width - 1, y, color)
 
 
+def get_default_stylesheet() -> dict:
+    """Return default stylesheet when file cannot be loaded."""
+    return {
+        "font_sizes": {
+            "xs": "4x6.bdf",
+            "small": "5x7.bdf",
+            "medium": "7x13.bdf",
+            "large": "7x13.bdf"
+        },
+        "defaults": {
+            "font_size": "medium",
+            "color": "#FFFFFF",
+            "background_color": "#000000",
+            "gap": 2,
+            "gravity": "center"
+        },
+        "classes": {},
+        "grids": {}
+    }
+
+
 def load_stylesheet() -> dict:
     """
     Load stylesheet from config/styles.json.
     
     Returns:
         Parsed stylesheet dictionary.
-    
-    Raises:
-        FileNotFoundError: If styles.json doesn't exist.
-        json.JSONDecodeError: If styles.json is invalid JSON.
     """
-    config_path = get_project_root() / "config" / "styles.json"
-    
-    if not config_path.exists():
-        # Return minimal default stylesheet
-        return {
-            "font_sizes": {
-                "small": "5x7.bdf",
-                "medium": "7x13.bdf",
-                "large": "7x13.bdf"
-            },
-            "defaults": {
-                "font_size": "medium",
-                "color": "#FFFFFF",
-                "background_color": "#000000",
-                "gap": 2,
-                "gravity": "center"
-            },
-            "classes": {},
-            "grids": {}
-        }
-    
-    with open(config_path, "r") as f:
-        return json.load(f)
+    try:
+        config_path = get_project_root() / "config" / "styles.json"
+        
+        # Use os.path.exists instead of pathlib.exists() to avoid permission issues
+        if not os.path.exists(config_path):
+            return get_default_stylesheet()
+        
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except (PermissionError, IOError, OSError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load styles.json: {e}. Using defaults.")
+        return get_default_stylesheet()
 
 
 def get_font_size_mapping() -> dict:

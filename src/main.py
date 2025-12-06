@@ -80,9 +80,9 @@ Examples:
     return parser.parse_args()
 
 
-def run_text_mode(args, config, matrix):
+def run_text_mode(args, config, matrix, style_manager=None):
     """Run text display mode."""
-    scroller = TextScroller(matrix=matrix, config=config)
+    scroller = TextScroller(matrix=matrix, config=config, style_manager=style_manager)
     
     # Get message from args or config
     message = args.message
@@ -111,9 +111,9 @@ def run_text_mode(args, config, matrix):
         scroller.clear()
 
 
-def run_clock_mode(args, config, matrix):
+def run_clock_mode(args, config, matrix, style_manager=None):
     """Run clock display mode."""
-    clock = Clock(matrix=matrix, config=config)
+    clock = Clock(matrix=matrix, config=config, style_manager=style_manager)
     
     print("Displaying clock")
     print("Press Ctrl+C to exit")
@@ -126,7 +126,7 @@ def run_clock_mode(args, config, matrix):
         clock.clear()
 
 
-def run_weather_mode(args, config, matrix):
+def run_weather_mode(args, config, matrix, style_manager=None):
     """Run weather display mode."""
     weather_config = config.get("weather", {})
     api_key = weather_config.get("api_key", "")
@@ -136,7 +136,7 @@ def run_weather_mode(args, config, matrix):
         print("Edit config/settings.json and add your OpenWeatherMap API key")
         print("Get a free key at: https://openweathermap.org/api")
     
-    weather = Weather(matrix=matrix, config=config)
+    weather = Weather(matrix=matrix, config=config, style_manager=style_manager)
     
     city = weather_config.get("city", "Unknown")
     print(f"Displaying weather for: {city}")
@@ -150,7 +150,7 @@ def run_weather_mode(args, config, matrix):
         weather.clear()
 
 
-def run_time_weather_calendar_mode(args, config, matrix):
+def run_time_weather_calendar_mode(args, config, matrix, style_manager=None):
     """Run time_weather_calendar composite display mode."""
     # Check for API key in time_weather_calendar config or fallback to weather config
     twc_config = config.get("time_weather_calendar", {})
@@ -165,7 +165,7 @@ def run_time_weather_calendar_mode(args, config, matrix):
         print("Edit config/settings.json and add your OpenWeatherMap API key")
         print("Get a free key at: https://openweathermap.org/api")
     
-    display = TimeWeatherCalendar(matrix=matrix, config=config)
+    display = TimeWeatherCalendar(matrix=matrix, config=config, style_manager=style_manager)
     
     city = weather_config.get("city", "Unknown")
     print(f"Displaying time, weather, and calendar for: {city}")
@@ -179,7 +179,7 @@ def run_time_weather_calendar_mode(args, config, matrix):
         display.clear()
 
 
-def run_flight_tracker_mode(args, config, matrix):
+def run_flight_tracker_mode(args, config, matrix, style_manager=None):
     """Run flight tracker display mode."""
     flight_config = config.get("flight_tracker", {})
     latitude = flight_config.get("latitude", 0.0)
@@ -191,7 +191,7 @@ def run_flight_tracker_mode(args, config, matrix):
         print("Edit config/settings.json and add your latitude and longitude")
         print("Example: \"latitude\": 25.2048, \"longitude\": 55.2708")
     
-    tracker = FlightTracker(matrix=matrix, config=config)
+    tracker = FlightTracker(matrix=matrix, config=config, style_manager=style_manager)
     
     print(f"Tracking flights within {radius_km}km of ({latitude}, {longitude})")
     print("Press Ctrl+C to exit")
@@ -219,30 +219,37 @@ def main():
         print(f"Error loading config: {e}")
         sys.exit(1)
     
+    # IMPORTANT: Load styles and fonts BEFORE creating matrix
+    # The rpi-rgb-led-matrix library changes process capabilities which breaks file access
+    from utils import preload_fonts
+    from style_parser import create_style_manager
+    
+    # Preload all fonts first
+    preload_fonts()
+    
+    # Create style manager (which also preloads fonts for styles)
+    try:
+        style_manager = create_style_manager()
+    except Exception as e:
+        print(f"Warning: Could not create style manager: {e}")
+        style_manager = None
+    
     # Override brightness if specified
     if args.brightness is not None:
         config.setdefault("matrix", {})["brightness"] = max(0, min(100, args.brightness))
     
-    # Create matrix
-    try:
-        matrix = create_matrix(config)
-    except Exception as e:
-        print(f"Error initializing matrix: {e}")
-        print("Make sure you're running with sudo and the hardware is connected.")
-        sys.exit(1)
-    
     # Run the appropriate mode
     try:
         if args.mode == "text":
-            run_text_mode(args, config, matrix)
+            run_text_mode(args, config, None, style_manager)
         elif args.mode == "clock":
-            run_clock_mode(args, config, matrix)
+            run_clock_mode(args, config, None, style_manager)
         elif args.mode == "weather":
-            run_weather_mode(args, config, matrix)
+            run_weather_mode(args, config, None, style_manager)
         elif args.mode == "time_weather_calendar":
-            run_time_weather_calendar_mode(args, config, matrix)
+            run_time_weather_calendar_mode(args, config, None, style_manager)
         elif args.mode == "flight_tracker":
-            run_flight_tracker_mode(args, config, matrix)
+            run_flight_tracker_mode(args, config, None, style_manager)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)

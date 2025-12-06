@@ -13,77 +13,87 @@
 		"gravity": "center"
 	},
 	"classes": {
-		".time-display": {
-			"font_size": "small",
-			"color": "#FFFF80",
-			"gravity": "top-center"
+		"clock": {
+			".time-display": {
+				"font_size": "small",
+				"color": "#FFFF80",
+				"gravity": "top-center"
+			},
+			".date-display": {
+				"font_size": "small",
+				"color": "#FFFF80",
+				"gravity": "center-center"
+			}
 		},
-		".date-display": {
-			"font_size": "small",
-			"color": "#FFFF80",
-			"gravity": "center-center"
+		"weather": {
+			".weather-temp": {
+				"font_size": "small",
+				"color": "#FFC800",
+				"gravity": "top-left"
+			},
+			".weather-condition": {
+				"font_size": "small",
+				"color": "#FFC800",
+				"gravity": "center-left"
+			}
 		},
-		".weather-temp": {
-			"font_size": "large",
-			"color": "#FFC800",
-			"gravity": "top-left"
+		"time_weather_calendar": {
+			".time-weather-time": {
+				"font_size": "small",
+				"color": "#ffffff",
+				"gravity": "center",
+				"brightness": 100
+			},
+			".time-weather-date": {
+				"font_size": "xs",
+				"color": "#ffffff",
+				"gravity": "center",
+				"brightness": 50
+			},
+			".time-weather-icon": {
+				"font_size": "small",
+				"color": "#FFB310",
+				"gravity": "center"
+			},
+			".time-weather-temp": {
+				"font_size": "xs",
+				"color": "#FFB310",
+				"gravity": "center"
+			},
+			".time-weather-composite": {
+				"font_size": "xs",
+				"color": "#FFFF80",
+				"gravity": "center"
+			}
 		},
-		".weather-condition": {
-			"font_size": "small",
-			"color": "#FFC800",
-			"gravity": "center-left"
+		"flight_tracker": {
+			".flight-route": {
+				"font_size": "medium",
+				"color": "#ffffff",
+				"gravity": "top-center",
+				"brightness": 100
+			},
+			".flight-route-city": {
+				"font_size": "xs",
+				"color": "#ffffff",
+				"gravity": "top-center",
+				"brightness": 50
+			},
+			".flight-icon": {
+				"color": "#52BAFF"
+			},
+			".flight-number": {
+				"font_size": "xs",
+				"color": "#52BAFF",
+				"gravity": "center-center"
+			}
 		},
-		".text-scroller": {
-			"font_size": "medium",
-			"color": "#B54300",
-			"background_color": "#000000"
-		},
-		".time-weather-time": {
-			"font_size": "small",
-			"color": "#ffffff",
-			"gravity": "center",
-			"brightness": 100
-		},
-		".time-weather-date": {
-			"font_size": "xs",
-			"color": "#ffffff",
-			"gravity": "center",
-			"brightness": 50
-		},
-		".time-weather-icon": {
-			"font_size": "small",
-			"color": "#FFB310",
-			"gravity": "center"
-		},
-		".time-weather-temp": {
-			"font_size": "xs",
-			"color": "#FFB310",
-			"gravity": "center"
-		},
-		".time-weather-composite": {
-			"font_size": "xs",
-			"color": "#FFFF80",
-			"gravity": "center"
-		},
-		".flight-route": {
-			"font_size": "medium",
-			"color": "#ffffff",
-			"gravity": "top-center",
-			"brightness": 100
-		},
-		".flight-route-city": {
-			"font_size": "xs",
-			"color": "#ffffff",
-			"gravity": "top-center",
-			"brightness": 50
-		},
-		".flight-icon": {
-			"color": "#52BAFF"
-		},
-		".flight-number": {
-			"font_size": "xs",
-			"color": "#52BAFF",
-			"gravity": "center-center"
+		"text_scroller": {
+			".text-scroller": {
+				"font_size": "medium",
+				"color": "#B54300",
+				"background_color": "#000000"
+			}
 		}
 	},
 	"grids": {
@@ -104,4 +114,3 @@
 		}
 	}
 }
-

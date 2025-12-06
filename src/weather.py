@@ -15,6 +15,7 @@ from utils import (
     create_graphics_color,
     load_font,
 )
+from style_parser import create_style_manager
 
 
 class Weather:
@@ -22,15 +23,17 @@ class Weather:
     
     API_URL = "https://api.openweathermap.org/data/2.5/weather"
     
-    def __init__(self, matrix: RGBMatrix = None, config: dict = None):
+    def __init__(self, matrix: RGBMatrix = None, config: dict = None, style_manager=None):
         """
         Initialize the Weather display.
         
         Args:
             matrix: Optional RGBMatrix instance. Creates one if not provided.
             config: Optional config dict. Loads from file if not provided.
+            style_manager: Optional StyleManager instance (should be created BEFORE matrix).
         """
         self.config = config or load_config()
+        self.style_manager = style_manager or create_style_manager()
         self.matrix = matrix or create_matrix(self.config)
         self.canvas = self.matrix.CreateFrameCanvas()
         
@@ -39,11 +42,16 @@ class Weather:
         self.city = weather_config.get("city", "New York")
         self.units = weather_config.get("units", "metric")
         self.update_interval = weather_config.get("update_interval_seconds", 600)
-        self.color = create_graphics_color(weather_config.get("color", {"r": 255, "g": 200, "b": 0}))
         
-        # Load fonts
-        self.main_font = load_font("7x13.bdf")
-        self.small_font = load_font("5x7.bdf")
+        # Use stylesheet classes for styling (from styles.json)
+        self.temp_style = self.style_manager.resolve_style(classes=["weather-temp"])
+        self.condition_style = self.style_manager.resolve_style(classes=["weather-condition"])
+        
+        # Fonts and colors from resolved styles
+        self.main_font = self.temp_style.font
+        self.small_font = self.condition_style.font
+        self.temp_color = self.temp_style.color
+        self.condition_color = self.condition_style.color
         
         # Cached weather data
         self.weather_data = None
@@ -123,19 +131,19 @@ class Weather:
                 msg = "Set API key"
             else:
                 msg = "Loading..."
-            graphics.DrawText(self.canvas, self.small_font, 2, 16, self.color, msg)
+            graphics.DrawText(self.canvas, self.small_font, 2, 16, self.condition_color, msg)
         else:
-            # Display temperature prominently
+            # Display temperature prominently (uses .weather-temp style)
             temp_str = self.get_temperature()
-            graphics.DrawText(self.canvas, self.main_font, 2, 12, self.color, temp_str)
+            graphics.DrawText(self.canvas, self.main_font, 2, 12, self.temp_color, temp_str)
             
-            # Display condition
+            # Display condition (uses .weather-condition style)
             condition = self.get_condition()
-            graphics.DrawText(self.canvas, self.small_font, 2, 22, self.color, condition)
+            graphics.DrawText(self.canvas, self.small_font, 2, 22, self.condition_color, condition)
             
             # Display city name (truncated if needed)
             city_display = self.city[:10] if len(self.city) > 10 else self.city
-            graphics.DrawText(self.canvas, self.small_font, 2, 30, self.color, city_display)
+            graphics.DrawText(self.canvas, self.small_font, 2, 30, self.condition_color, city_display)
         
         self.canvas = self.matrix.SwapOnVSync(self.canvas)
     

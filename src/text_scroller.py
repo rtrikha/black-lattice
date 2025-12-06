@@ -15,31 +15,36 @@ from utils import (
     fill_canvas_background,
     parse_color,
 )
+from style_parser import create_style_manager
 
 
 class TextScroller:
     """Handles scrolling text display on the LED matrix."""
     
-    def __init__(self, matrix: RGBMatrix = None, config: dict = None):
+    def __init__(self, matrix: RGBMatrix = None, config: dict = None, style_manager=None):
         """
         Initialize the TextScroller.
         
         Args:
             matrix: Optional RGBMatrix instance. Creates one if not provided.
             config: Optional config dict. Loads from file if not provided.
+            style_manager: Optional StyleManager instance (should be created BEFORE matrix).
         """
         self.config = config or load_config()
         self.matrix = matrix or create_matrix(self.config)
         self.canvas = self.matrix.CreateFrameCanvas()
+        self.style_manager = style_manager or create_style_manager()
         
         scroller_config = self.config.get("text_scroller", {})
         self.scroll_speed = scroller_config.get("scroll_speed", 0.03)
 
-        # ----- FONT: hard-wire known-good font from rpi-rgb-led-matrix -----
-        self.font = graphics.Font()
-        # You already verified this path works with a direct FONT OK test
-        self.font.LoadFont("/home/pi/rpi-rgb-led-matrix/fonts/7x13.bdf")
-        # -------------------------------------------------------------------
+        # Font from config or stylesheet (falls back to default if missing)
+        font_key = scroller_config.get("font", scroller_config.get("font_size", "medium"))
+        try:
+            self.font = self.style_manager.get_font(font_key)
+        except Exception:
+            self.font = graphics.Font()
+            self.font.LoadFont("/home/pi/rpi-rgb-led-matrix/fonts/7x13.bdf")
 
         # Parse background color (default: black)
         background_color_input = scroller_config.get("background_color", "#000000")

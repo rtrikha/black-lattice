@@ -39,20 +39,56 @@ class Style:
 class StyleManager:
     """Manages font size mappings and style resolution."""
     
-    def __init__(self, stylesheet: Dict[str, Any]):
+    def __init__(self, stylesheet: Dict[str, Any], preload_fonts: bool = True):
         """
         Initialize StyleManager with a stylesheet.
         
         Args:
             stylesheet: Parsed styles.json configuration.
+            preload_fonts: If True, preload all fonts immediately (recommended to call before RGBMatrix init)
         """
         self.stylesheet = stylesheet
         self.font_sizes = stylesheet.get("font_sizes", {})
         self.defaults = stylesheet.get("defaults", {})
-        self.class_rules = stylesheet.get("classes", {})
+        self.class_rules = self._flatten_classes(stylesheet.get("classes", {}))
         
         # Cache loaded fonts
         self._font_cache: Dict[str, graphics.Font] = {}
+        
+        # Preload all fonts immediately (before matrix init breaks file access)
+        if preload_fonts:
+            self._preload_fonts()
+    
+    def _flatten_classes(self, classes: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Flatten nested class structure into a flat dictionary.
+        
+        Supports both flat structure:
+            {".time-display": {...}}
+        
+        And nested structure (organized by feature):
+            {"clock": {".time-display": {...}}}
+        """
+        flat = {}
+        for key, value in classes.items():
+            if key.startswith("."):
+                # It's a class rule (flat structure)
+                flat[key] = value
+            elif isinstance(value, dict):
+                # It's a feature group - extract nested classes
+                for class_key, class_value in value.items():
+                    if class_key.startswith(".") and isinstance(class_value, dict):
+                        flat[class_key] = class_value
+        return flat
+    
+    def _preload_fonts(self):
+        """Preload all fonts defined in the stylesheet."""
+        for font_size, font_file in self.font_sizes.items():
+            if font_file not in self._font_cache:
+                try:
+                    self._font_cache[font_file] = load_font(font_file)
+                except FileNotFoundError as e:
+                    print(f"Warning: Could not preload font {font_file}: {e}")
     
     def get_font(self, font_size: str) -> graphics.Font:
         """
